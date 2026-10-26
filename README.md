@@ -1,6 +1,10 @@
 # 外贸报价计算器（Foreign Trade Quote Calculator）
 
+[![CI](https://github.com/linklee35-star/foreign-trade-calculator/actions/workflows/ci.yml/badge.svg)](https://github.com/linklee35-star/foreign-trade-calculator/actions/workflows/ci.yml)
+
 给外贸业务员 / SOHO / 工厂用的报价测算工具：输入采购价与费用，直接得出 **FOB / CFR / CIF 报价、退税收入、换汇成本、整单利润**。
+
+🌐 **在线使用（无需安装）**：https://linklee35-star.github.io/foreign-trade-calculator/
 
 > 外贸报价最容易出错的不是算术，是**口径**：退税按不含税价算、保险费按 CIF 加成算、换汇成本要跟银行汇率比。这个工具把这些口径固化进公式，并在界面上写明。
 

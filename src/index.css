@@ -22,3 +22,60 @@ input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
+/* 只在打印时出现的报价单抬头 */
+.print-only {
+  display: none;
+}
+
+/* ============================================================================
+   打印 / 另存为 PDF
+   页面是深色主题，直接打印会糊成一整片黑，所以打印时统一转成白底黑字细边框。
+   ============================================================================ */
+@media print {
+  :root {
+    color-scheme: light;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  body * {
+    color: #111 !important;
+    background: transparent !important;
+    border-color: #ccc !important;
+    box-shadow: none !important;
+  }
+
+  /* 报价金额是唯一需要强调的数字，类选择器优先级高于上面的通配 */
+  .print-accent {
+    color: #1e3a8a !important;
+    font-weight: 700 !important;
+  }
+
+  input {
+    border: 1px solid #ccc !important;
+    padding: 2px 6px !important;
+  }
+
+  /* 别让卡片被切成两页 */
+  section,
+  aside > div {
+    break-inside: avoid;
+  }
+
+  @page {
+    margin: 12mm;
+  }
+}

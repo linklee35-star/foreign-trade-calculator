@@ -8,6 +8,23 @@
       name="description"
       content="外贸报价计算器：FOB/CFR/CIF 报价、出口退税、保险费、换汇成本与利润测算，纯前端本地计算。"
     />
+    <script>
+      // 在 React 挂载前定好主题，避免刷新时先闪一下深色再变浅色
+      (function () {
+        try {
+          var saved = localStorage.getItem("ftc-theme");
+          var theme =
+            saved === "light" || saved === "dark"
+              ? saved
+              : window.matchMedia("(prefers-color-scheme: light)").matches
+                ? "light"
+                : "dark";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

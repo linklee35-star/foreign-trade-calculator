@@ -35,6 +35,8 @@ export function createItem(id: string): QuoteItem {
     quantity: 1,
     purchasePrice: 0,
     rebateRate: 13,
+    volumePerUnit: 0,
+    weightPerUnit: 0,
   };
 }
 
@@ -50,7 +52,21 @@ export function computeQuote(input: QuoteInput): QuoteResult {
     const priceExVat = purchaseTotal / vatDivisor;
     const rebateIncome = priceExVat * (num(item.rebateRate) / 100);
     const netCostRMB = purchaseTotal - rebateIncome;
-    return { item, quantity, purchaseTotal, priceExVat, rebateIncome, netCostRMB };
+    // 体积重：海运拼箱按 W/M 择大计费，行业统一 1 CBM = 1000 kg
+    const volumeCBM = Math.max(0, num(item.volumePerUnit)) * quantity;
+    const weightKg = Math.max(0, num(item.weightPerUnit)) * quantity;
+    const chargeableTon = Math.max(volumeCBM, weightKg / 1000);
+    return {
+      item,
+      quantity,
+      purchaseTotal,
+      priceExVat,
+      rebateIncome,
+      netCostRMB,
+      volumeCBM,
+      weightKg,
+      chargeableTon,
+    };
   });
 
   const purchaseTotal = baseRows.reduce((s, r) => s + r.purchaseTotal, 0);
@@ -58,6 +74,10 @@ export function computeQuote(input: QuoteInput): QuoteResult {
   const rebateIncome = baseRows.reduce((s, r) => s + r.rebateIncome, 0);
   const netGoodsCostRMB = purchaseTotal - rebateIncome;
   const totalQuantity = baseRows.reduce((s, r) => s + r.quantity, 0);
+  const totalVolumeCBM = baseRows.reduce((s, r) => s + r.volumeCBM, 0);
+  const totalWeightKg = baseRows.reduce((s, r) => s + r.weightKg, 0);
+  // 整单计费吨就是货代报价的那个数：总体积与总重量择大
+  const chargeableTon = Math.max(totalVolumeCBM, totalWeightKg / 1000);
 
   // 没有货就没有订单：固定费用不该被算成一份"零件的报价"。
   // 总数量为 0 时全部金额归零（明细行保留，便于用户看到自己填了哪些行）。
@@ -82,6 +102,9 @@ export function computeQuote(input: QuoteInput): QuoteResult {
       exchangeCost: 0,
       healthy: false,
       totalQuantity: 0,
+      totalVolumeCBM: 0,
+      totalWeightKg: 0,
+      chargeableTon: 0,
       items: baseRows.map((row) => ({
         id: row.item.id,
         name: row.item.name,
@@ -98,6 +121,9 @@ export function computeQuote(input: QuoteInput): QuoteResult {
         unitPrice: 0,
         profitUSD: 0,
         share: 0,
+        volumeCBM: 0,
+        weightKg: 0,
+        chargeableTon: 0,
       })),
     };
   }
@@ -135,12 +161,29 @@ export function computeQuote(input: QuoteInput): QuoteResult {
 
   // —— 4. 费用分摊到每个货号 ——
   const feePoolRMB = domesticTotal + freightUSD * rate + insuranceUSD * rate;
-  const weightOf = (row: (typeof baseRows)[number]) =>
-    input.allocation === "quantity" ? row.quantity : row.netCostRMB;
-  const totalWeight = baseRows.reduce((s, r) => s + weightOf(r), 0);
+
+  const weightOf = (row: (typeof baseRows)[number]) => {
+    if (input.allocation === "quantity") return row.quantity;
+    if (input.allocation === "volume") return row.chargeableTon;
+    return row.netCostRMB;
+  };
+
+  // 分摊权重的兜底链：所选口径没数据时退回货值，再退回数量。
+  // 否则用户选了「按体积重」却没填体积/重量，费用分摊不出去，
+  // 「各行之和 = 整单」这个不变量就破了。
+  let effectiveWeightOf = weightOf;
+  let totalWeight = baseRows.reduce((s, r) => s + weightOf(r), 0);
+  if (totalWeight <= 0) {
+    effectiveWeightOf = (row) => row.netCostRMB;
+    totalWeight = baseRows.reduce((s, r) => s + effectiveWeightOf(r), 0);
+  }
+  if (totalWeight <= 0) {
+    effectiveWeightOf = (row) => row.quantity;
+    totalWeight = baseRows.reduce((s, r) => s + effectiveWeightOf(r), 0);
+  }
 
   const items: ItemResult[] = baseRows.map((row) => {
-    const share = totalWeight > 0 ? weightOf(row) / totalWeight : 0;
+    const share = totalWeight > 0 ? effectiveWeightOf(row) / totalWeight : 0;
 
     // 分摊后的三级成本：保证「各行加总 = 整单」（有测试守着）
     const itemFobUSD = (row.netCostRMB + domesticTotal * share) / rate;
@@ -167,6 +210,9 @@ export function computeQuote(input: QuoteInput): QuoteResult {
       unitPrice: round(row.quantity > 0 ? amountUSD / row.quantity : 0, 4),
       profitUSD: round(amountUSD - itemBaseUSD),
       share,
+      volumeCBM: round(row.volumeCBM, 4),
+      weightKg: round(row.weightKg, 2),
+      chargeableTon: round(row.chargeableTon, 4),
     };
   });
 
@@ -190,6 +236,9 @@ export function computeQuote(input: QuoteInput): QuoteResult {
     exchangeCost: round(exchangeCost, 4),
     healthy,
     totalQuantity,
+    totalVolumeCBM: round(totalVolumeCBM, 4),
+    totalWeightKg: round(totalWeightKg, 2),
+    chargeableTon: round(chargeableTon, 4),
     items,
   };
 }

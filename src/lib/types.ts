@@ -13,10 +13,19 @@ export interface QuoteItem {
   purchasePrice: number;
   /** 该货号的出口退税率 %（按 HS 编码，常见 13 / 9 / 0） */
   rebateRate: number;
+  /** 单件体积（CBM/件，外箱长×宽×高）。按体积重分摊时使用 */
+  volumePerUnit: number;
+  /** 单件毛重（kg/件）。按体积重分摊时使用 */
+  weightPerUnit: number;
 }
 
-/** 整单费用分摊方式 */
-export type AllocationMode = "value" | "quantity";
+/**
+ * 整单费用分摊方式
+ * - value：按货值（高价值货号多摊）
+ * - quantity：按数量
+ * - volume：按计费吨（W/M 择大，1 CBM = 1000 kg），贴近货代真实计费
+ */
+export type AllocationMode = "value" | "quantity" | "volume";
 
 /** 报价术语：决定报价基数用哪一级成本 */
 export type Incoterm = "FOB" | "CFR" | "CIF";
@@ -99,6 +108,12 @@ export interface ItemResult {
   profitUSD: number;
   /** 该行成本占整单比例（0~1），用于识别"哪个货号吃掉了成本" */
   share: number;
+  /** 该行体积（CBM） */
+  volumeCBM: number;
+  /** 该行毛重（kg） */
+  weightKg: number;
+  /** 该行计费吨（W/M 择大：max(CBM, 吨)） */
+  chargeableTon: number;
 }
 
 /** 报价结果 */
@@ -142,6 +157,15 @@ export interface QuoteResult {
 
   /** 总数量 */
   totalQuantity: number;
+  /** 总体积（CBM） */
+  totalVolumeCBM: number;
+  /** 总毛重（kg） */
+  totalWeightKg: number;
+  /**
+   * 整单计费吨（货代报价用的 R/T）= max(总体积 CBM, 总毛重 ÷ 1000)。
+   * 注意：各行计费吨相加可能大于它（每行各自择大的结果），分摊按行计费吨占比归一化。
+   */
+  chargeableTon: number;
   /** 各货号明细 */
   items: ItemResult[];
 }

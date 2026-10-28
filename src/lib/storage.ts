@@ -28,7 +28,7 @@ const NUMERIC_KEYS = [
 
 const TEXT_KEYS = ["quoteNo", "customer", "pol", "pod", "leadTime", "paymentTerm"] as const;
 
-const ALLOCATIONS: AllocationMode[] = ["value", "quantity"];
+const ALLOCATIONS: AllocationMode[] = ["value", "quantity", "volume"];
 const INCOTERMS: Incoterm[] = ["FOB", "CFR", "CIF"];
 
 const isFiniteNumber = (v: unknown): v is number =>
@@ -48,6 +48,8 @@ function sanitizeItem(raw: unknown, index: number): QuoteItem | null {
   }
 
   const text = (v: unknown) => (typeof v === "string" ? v : "");
+  // 体积/重量是后加的字段：老存档没有时按 0 处理，而不是把整行丢掉
+  const optionalNumber = (v: unknown) => (isFiniteNumber(v) ? Math.max(0, v) : 0);
 
   return {
     id: typeof r.id === "string" && r.id ? r.id : `item-restored-${index}`,
@@ -57,6 +59,8 @@ function sanitizeItem(raw: unknown, index: number): QuoteItem | null {
     quantity: Math.max(0, r.quantity),
     purchasePrice: r.purchasePrice,
     rebateRate: r.rebateRate,
+    volumePerUnit: optionalNumber(r.volumePerUnit),
+    weightPerUnit: optionalNumber(r.weightPerUnit),
   };
 }
 

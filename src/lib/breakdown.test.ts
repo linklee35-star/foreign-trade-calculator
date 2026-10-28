@@ -9,7 +9,17 @@ import type { QuoteInput } from "./types";
 
 const base: QuoteInput = {
   items: [
-    { id: "a", name: "A", spec: "", hsCode: "", quantity: 100, purchasePrice: 100, rebateRate: 13 },
+    {
+      id: "a",
+      name: "A",
+      spec: "",
+      hsCode: "",
+      quantity: 100,
+      purchasePrice: 100,
+      rebateRate: 13,
+      volumePerUnit: 0.02,
+      weightPerUnit: 0.5,
+    },
   ],
   vatRate: 13,
   domesticFees: 2000,
@@ -69,8 +79,28 @@ describe("成本拆解", () => {
     const multi: QuoteInput = {
       ...base,
       items: [
-        { id: "a", name: "A", spec: "", hsCode: "", quantity: 100, purchasePrice: 100, rebateRate: 13 },
-        { id: "b", name: "B", spec: "", hsCode: "", quantity: 300, purchasePrice: 20, rebateRate: 9 },
+        {
+          id: "a",
+          name: "A",
+          spec: "",
+          hsCode: "",
+          quantity: 100,
+          purchasePrice: 100,
+          rebateRate: 13,
+          volumePerUnit: 0.02,
+          weightPerUnit: 0.5,
+        },
+        {
+          id: "b",
+          name: "B",
+          spec: "",
+          hsCode: "",
+          quantity: 300,
+          purchasePrice: 20,
+          rebateRate: 9,
+          volumePerUnit: 0.005,
+          weightPerUnit: 0.3,
+        },
       ],
     };
     const result = computeQuote(multi);

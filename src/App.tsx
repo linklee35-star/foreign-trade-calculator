@@ -18,6 +18,46 @@ const fmt = (n: number, d = 2) =>
   n.toLocaleString("zh-CN", { minimumFractionDigits: d, maximumFractionDigits: d });
 const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`;
 
+/* ------------------------------------------------------------------ 主题 */
+
+type Theme = "dark" | "light";
+const THEME_KEY = "ftc-theme";
+
+function initialTheme(): Theme {
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === "light" || saved === "dark") return saved;
+    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  } catch {
+    return "dark";
+  }
+}
+
+function ThemeToggle() {
+  const [theme, setTheme] = useState<Theme>(initialTheme);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch {
+      // 存不下也无所谓，本次会话照常生效
+    }
+  }, [theme]);
+
+  return (
+    <button
+      type="button"
+      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+      className="btn rounded-lg px-2.5 py-1.5 text-xs"
+      aria-label="切换主题"
+      title={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
+    >
+      {theme === "dark" ? "☀ 浅色" : "☾ 深色"}
+    </button>
+  );
+}
+
 /* ------------------------------------------------------------------ 基础控件 */
 
 interface FieldProps {
@@ -32,9 +72,9 @@ interface FieldProps {
 function Field({ label, unit, value, onChange, hint, step = 1 }: FieldProps) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs text-zinc-400">
+      <span className="mb-1 block text-xs text-muted">
         {label}
-        {hint ? <span className="ml-1 text-zinc-600">· {hint}</span> : null}
+        {hint ? <span className="ml-1 text-subtle">· {hint}</span> : null}
       </span>
       <div className="relative">
         <input
@@ -42,9 +82,9 @@ function Field({ label, unit, value, onChange, hint, step = 1 }: FieldProps) {
           step={step}
           value={Number.isFinite(value) ? value : 0}
           onChange={(e) => onChange(Number(e.target.value) || 0)}
-          className="w-full rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 pr-12 text-sm text-zinc-100 outline-none focus:border-indigo-500"
+          className="field rounded-lg px-3 py-2 pr-12 text-sm"
         />
-        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500">
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-subtle">
           {unit}
         </span>
       </div>
@@ -65,13 +105,13 @@ function TextField({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs text-zinc-400">{label}</span>
+      <span className="mb-1 block text-xs text-muted">{label}</span>
       <input
         type="text"
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-indigo-500"
+        className="field rounded-lg px-3 py-2 text-sm"
       />
     </label>
   );
@@ -90,7 +130,7 @@ function Segmented<T extends string>({
 }) {
   return (
     <div>
-      <span className="mb-1 block text-xs text-zinc-400">{label}</span>
+      <span className="mb-1 block text-xs text-muted">{label}</span>
       <div className="flex flex-wrap gap-1.5">
         {options.map((opt) => (
           <button
@@ -98,14 +138,12 @@ function Segmented<T extends string>({
             type="button"
             onClick={() => onChange(opt.value)}
             className={
-              "rounded-lg border px-3 py-1.5 text-xs transition " +
-              (value === opt.value
-                ? "border-indigo-500/60 bg-indigo-500/15 text-indigo-200"
-                : "border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-300")
+              "rounded-lg px-3 py-1.5 text-xs transition " +
+              (value === opt.value ? "chip-active" : "chip")
             }
           >
             {opt.label}
-            {opt.hint ? <span className="ml-1 text-[10px] text-zinc-500">{opt.hint}</span> : null}
+            {opt.hint ? <span className="ml-1 text-[10px] text-subtle">{opt.hint}</span> : null}
           </button>
         ))}
       </div>
@@ -117,17 +155,15 @@ function Section({
   title,
   desc,
   children,
-  className = "",
 }: {
   title: string;
   desc?: string;
   children: React.ReactNode;
-  className?: string;
 }) {
   return (
-    <section className={"rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 " + className}>
-      <h2 className="text-sm font-medium text-zinc-300">{title}</h2>
-      {desc ? <p className="mb-3 mt-1 text-xs text-zinc-600">{desc}</p> : <div className="mb-3" />}
+    <section className="panel rounded-2xl p-4">
+      <h2 className="text-sm font-medium">{title}</h2>
+      {desc ? <p className="mb-3 mt-1 text-xs text-subtle">{desc}</p> : <div className="mb-3" />}
       {children}
     </section>
   );
@@ -147,18 +183,18 @@ function Metric({
   accent?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
-      <div className="text-xs text-zinc-500">{label}</div>
+    <div className="panel-soft rounded-xl p-3">
+      <div className="text-xs text-subtle">{label}</div>
       <div
         className={
           "mt-1 text-lg font-semibold " +
-          (tone === "good" ? "text-emerald-400" : tone === "bad" ? "text-rose-400" : "text-zinc-100") +
+          (tone === "good" ? "tone-good" : tone === "bad" ? "tone-bad" : "") +
           (accent ? " print-accent" : "")
         }
       >
         {value}
       </div>
-      {sub ? <div className="mt-0.5 text-xs text-zinc-500">{sub}</div> : null}
+      {sub ? <div className="mt-0.5 text-xs text-subtle">{sub}</div> : null}
     </div>
   );
 }
@@ -208,6 +244,8 @@ export default function App() {
     return d.toLocaleDateString("zh-CN");
   }, [input.validDays]);
 
+  const showVolume = input.allocation === "volume";
+
   const incotermNote: Record<Incoterm, string> = {
     FOB: "装运港船上交货（不含海运费与保险）",
     CFR: "成本加运费（含海运费，不含保险）",
@@ -218,7 +256,7 @@ export default function App() {
     <div className="mx-auto max-w-6xl px-4 py-8">
       {/* ================= 打印版：给客户的报价单（不含成本，成本是内部信息） ================= */}
       <div className="print-only mb-6">
-        <div className="flex items-start justify-between border-b-2 border-zinc-800 pb-2">
+        <div className="flex items-start justify-between border-b-2 pb-2" style={{ borderColor: "#333" }}>
           <div>
             <h1 className="text-2xl font-bold">出口报价单 / QUOTATION</h1>
             <p className="mt-1 text-sm">Quotation No.: {quoteNo}</p>
@@ -238,7 +276,7 @@ export default function App() {
 
         <table className="mt-4 w-full text-sm">
           <thead>
-            <tr className="border-b border-zinc-400 text-left">
+            <tr className="border-b text-left" style={{ borderColor: "#888" }}>
               <th className="py-1.5 font-semibold">No.</th>
               <th className="py-1.5 font-semibold">Description</th>
               <th className="py-1.5 font-semibold">Spec</th>
@@ -249,7 +287,7 @@ export default function App() {
           </thead>
           <tbody>
             {r.items.map((it, i) => (
-              <tr key={it.id} className="border-b border-zinc-200">
+              <tr key={it.id} className="border-b" style={{ borderColor: "#ddd" }}>
                 <td className="py-1.5">{i + 1}</td>
                 <td className="py-1.5">{it.name || "—"}</td>
                 <td className="py-1.5">{it.spec || "—"}</td>
@@ -260,7 +298,7 @@ export default function App() {
             ))}
             <tr>
               <td className="py-2 font-semibold" colSpan={5}>
-                TOTAL {input.incoterm}
+                TOTAL {input.incoterm} {input.pod || ""}
               </td>
               <td className="py-2 text-right font-bold tabular-nums print-accent">
                 USD {fmt(r.quoteUSD)}
@@ -283,48 +321,55 @@ export default function App() {
       </div>
 
       {/* ================= 屏幕版 ================= */}
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-3 no-print">
+      <header className="no-print mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">外贸报价工作台</h1>
-          <p className="mt-1 text-sm text-zinc-400">
+          <p className="mt-1 text-sm text-muted">
             多货号成本核算 · 费用分摊 · FOB/CFR/CIF 报价 · 一键出客户报价单
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <ThemeToggle />
           <button
             type="button"
             onClick={() => window.print()}
-            className="rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-1.5 text-xs font-medium text-indigo-200 hover:bg-indigo-500/20"
+            className="btn-primary rounded-lg px-3 py-1.5 text-xs font-medium"
           >
             生成报价单 / 存为 PDF
           </button>
-          <button
-            type="button"
-            onClick={reset}
-            className="rounded-lg border border-zinc-800 px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-900"
-          >
+          <button type="button" onClick={reset} className="btn rounded-lg px-3 py-1.5 text-xs">
             恢复默认值
           </button>
         </div>
       </header>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
-        <div className="space-y-4 no-print">
+        <div className="no-print space-y-4">
           {/* ① 商品明细 */}
           <Section
             title="① 商品明细"
-            desc="每个货号按自己的 HS 编码填退税率，退税单独计算，不共用全单一个税率"
+            desc={
+              showVolume
+                ? "每个货号按自己的 HS 编码填退税率；按体积重分摊时需填单件体积与毛重"
+                : "每个货号按自己的 HS 编码填退税率，退税单独计算，不共用全单一个税率"
+            }
           >
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-xs text-zinc-500">
+                  <tr className="text-xs text-subtle">
                     <th className="pb-2 text-left font-normal">品名</th>
                     <th className="pb-2 text-left font-normal">规格</th>
                     <th className="pb-2 text-left font-normal">HS 编码</th>
                     <th className="pb-2 text-right font-normal">数量</th>
                     <th className="pb-2 text-right font-normal">含税单价 ¥</th>
                     <th className="pb-2 text-right font-normal">退税率 %</th>
+                    {showVolume ? (
+                      <>
+                        <th className="pb-2 text-right font-normal">单件体积 CBM</th>
+                        <th className="pb-2 text-right font-normal">单件毛重 kg</th>
+                      </>
+                    ) : null}
                     <th className="pb-2 text-right font-normal">CIF 单价 $</th>
                     <th className="pb-2" />
                   </tr>
@@ -333,13 +378,13 @@ export default function App() {
                   {input.items.map((it, index) => {
                     const result = r.items[index];
                     return (
-                      <tr key={it.id} className="border-t border-zinc-800/70">
+                      <tr key={it.id} className="row-divider">
                         <td className="py-1.5 pr-1">
                           <input
                             value={it.name}
                             placeholder="品名"
                             onChange={(e) => updateItem(it.id, { name: e.target.value })}
-                            className="w-28 rounded-md border border-zinc-800 bg-zinc-900/60 px-2 py-1.5 text-xs text-zinc-100 outline-none focus:border-indigo-500"
+                            className="field w-28 rounded-md px-2 py-1.5 text-xs"
                           />
                         </td>
                         <td className="py-1.5 pr-1">
@@ -347,7 +392,7 @@ export default function App() {
                             value={it.spec}
                             placeholder="规格"
                             onChange={(e) => updateItem(it.id, { spec: e.target.value })}
-                            className="w-20 rounded-md border border-zinc-800 bg-zinc-900/60 px-2 py-1.5 text-xs text-zinc-100 outline-none focus:border-indigo-500"
+                            className="field w-20 rounded-md px-2 py-1.5 text-xs"
                           />
                         </td>
                         <td className="py-1.5 pr-1">
@@ -355,7 +400,7 @@ export default function App() {
                             value={it.hsCode}
                             placeholder="选填"
                             onChange={(e) => updateItem(it.id, { hsCode: e.target.value })}
-                            className="w-24 rounded-md border border-zinc-800 bg-zinc-900/60 px-2 py-1.5 text-xs text-zinc-100 outline-none focus:border-indigo-500"
+                            className="field w-24 rounded-md px-2 py-1.5 text-xs"
                           />
                         </td>
                         <td className="py-1.5 pr-1">
@@ -363,7 +408,7 @@ export default function App() {
                             type="number"
                             value={it.quantity}
                             onChange={(e) => updateItem(it.id, { quantity: Number(e.target.value) || 0 })}
-                            className="w-20 rounded-md border border-zinc-800 bg-zinc-900/60 px-2 py-1.5 text-right text-xs text-zinc-100 outline-none focus:border-indigo-500"
+                            className="field w-20 rounded-md px-2 py-1.5 text-right text-xs"
                           />
                         </td>
                         <td className="py-1.5 pr-1">
@@ -372,7 +417,7 @@ export default function App() {
                             step={0.01}
                             value={it.purchasePrice}
                             onChange={(e) => updateItem(it.id, { purchasePrice: Number(e.target.value) || 0 })}
-                            className="w-24 rounded-md border border-zinc-800 bg-zinc-900/60 px-2 py-1.5 text-right text-xs text-zinc-100 outline-none focus:border-indigo-500"
+                            className="field w-24 rounded-md px-2 py-1.5 text-right text-xs"
                           />
                         </td>
                         <td className="py-1.5 pr-1">
@@ -380,10 +425,36 @@ export default function App() {
                             type="number"
                             value={it.rebateRate}
                             onChange={(e) => updateItem(it.id, { rebateRate: Number(e.target.value) || 0 })}
-                            className="w-16 rounded-md border border-zinc-800 bg-zinc-900/60 px-2 py-1.5 text-right text-xs text-zinc-100 outline-none focus:border-indigo-500"
+                            className="field w-16 rounded-md px-2 py-1.5 text-right text-xs"
                           />
                         </td>
-                        <td className="py-1.5 pr-1 text-right tabular-nums text-xs text-zinc-400">
+                        {showVolume ? (
+                          <>
+                            <td className="py-1.5 pr-1">
+                              <input
+                                type="number"
+                                step={0.001}
+                                value={it.volumePerUnit}
+                                onChange={(e) =>
+                                  updateItem(it.id, { volumePerUnit: Number(e.target.value) || 0 })
+                                }
+                                className="field w-20 rounded-md px-2 py-1.5 text-right text-xs"
+                              />
+                            </td>
+                            <td className="py-1.5 pr-1">
+                              <input
+                                type="number"
+                                step={0.01}
+                                value={it.weightPerUnit}
+                                onChange={(e) =>
+                                  updateItem(it.id, { weightPerUnit: Number(e.target.value) || 0 })
+                                }
+                                className="field w-20 rounded-md px-2 py-1.5 text-right text-xs"
+                              />
+                            </td>
+                          </>
+                        ) : null}
+                        <td className="py-1.5 pr-1 text-right text-xs tabular-nums text-muted">
                           {result ? fmt(result.unitPrice, 4) : "—"}
                         </td>
                         <td className="py-1.5 text-right">
@@ -392,7 +463,7 @@ export default function App() {
                             onClick={() => removeItem(it.id)}
                             disabled={input.items.length <= 1}
                             title={input.items.length <= 1 ? "至少保留一行" : "删除该行"}
-                            className="rounded-md px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-800 hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-30"
+                            className="rounded-md px-2 py-1 text-xs text-subtle hover:bg-[var(--panel-2)] hover:text-[var(--bad)] disabled:cursor-not-allowed disabled:opacity-30"
                           >
                             删除
                           </button>
@@ -403,13 +474,20 @@ export default function App() {
                 </tbody>
               </table>
             </div>
-            <button
-              type="button"
-              onClick={addItem}
-              className="mt-3 rounded-lg border border-dashed border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:border-indigo-500/50 hover:text-indigo-300"
-            >
-              + 添加货号
-            </button>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={addItem}
+                className="rounded-lg border border-dashed px-3 py-1.5 text-xs text-muted hover:text-[var(--accent-text)]"
+                style={{ borderColor: "var(--border-strong)" }}
+              >
+                + 添加货号
+              </button>
+              <span className="text-xs text-subtle">
+                合计 {fmt(r.totalQuantity, 0)} 件 · {fmt(r.totalVolumeCBM, 3)} CBM ·{" "}
+                {fmt(r.totalWeightKg, 1)} kg · 计费吨 {fmt(r.chargeableTon, 3)} R/T
+              </span>
+            </div>
           </Section>
 
           {/* ② 国内费用 */}
@@ -424,7 +502,7 @@ export default function App() {
           {/* ③ 国际物流与分摊 */}
           <Section
             title="③ 国际物流与费用分摊"
-            desc="整单费用按货值或数量分摊到每个货号，才能看出哪个货号吃掉成本"
+            desc="整单费用按所选口径分摊到每个货号，才能看出哪个货号吃掉成本"
           >
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <Field label="海运费" unit="$" value={input.freightUSD} onChange={(v) => set("freightUSD", v)} />
@@ -437,10 +515,16 @@ export default function App() {
                 value={input.allocation}
                 onChange={(v) => set("allocation", v)}
                 options={[
-                  { value: "value", label: "按货值", hint: "高价值货号多摊" },
-                  { value: "quantity", label: "按数量", hint: "数量多的多摊" },
+                  { value: "value", label: "按货值", hint: "高价值多摊" },
+                  { value: "quantity", label: "按数量", hint: "件数多摊" },
+                  { value: "volume", label: "按体积重", hint: "W/M 择大" },
                 ]}
               />
+              <p className="mt-1.5 text-[11px] text-subtle">
+                {input.allocation === "volume"
+                  ? "海运拼箱按 W/M 择大计费：1 CBM = 1000 kg，逐行取 max(体积吨, 重量吨) 后按占比分摊；未填体积/重量时自动退回按货值分摊"
+                  : "海运费、保险、国内费用汇总成费用池后按占比分摊，各行成本之和等于整单"}
+              </p>
             </div>
           </Section>
 
@@ -463,7 +547,7 @@ export default function App() {
                   { value: "CIF", label: "CIF" },
                 ]}
               />
-              <p className="mt-1.5 text-[11px] text-zinc-600">{incotermNote[input.incoterm]}</p>
+              <p className="mt-1.5 text-[11px] text-subtle">{incotermNote[input.incoterm]}</p>
             </div>
           </Section>
 
@@ -481,19 +565,21 @@ export default function App() {
               <TextField label="交货期" value={input.leadTime} onChange={(v) => set("leadTime", v)} placeholder="30 days after deposit" />
             </div>
             <div className="mt-3">
-              <TextField label="付款方式" value={input.paymentTerm} onChange={(v) => set("paymentTerm", v)} placeholder="T/T 30% deposit, balance against B/L copy" />
+              <TextField
+                label="付款方式"
+                value={input.paymentTerm}
+                onChange={(v) => set("paymentTerm", v)}
+                placeholder="T/T 30% deposit, balance against B/L copy"
+              />
             </div>
           </Section>
 
           {/* 成本拆解 */}
-          <Section
-            title="成本拆解"
-            desc="全部折算成人民币，便于横向比较（海运费、保险原始为美元）"
-          >
+          <Section title="成本拆解" desc="全部折算成人民币，便于横向比较（海运费、保险原始为美元）">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-xs text-zinc-500">
+                  <tr className="text-xs text-subtle">
                     <th className="pb-2 text-left font-normal">项目</th>
                     <th className="pb-2 text-right font-normal">金额（¥）</th>
                     <th className="pb-2 text-right font-normal">占 CIF 成本</th>
@@ -501,21 +587,26 @@ export default function App() {
                 </thead>
                 <tbody>
                   {breakdown.lines.map((line) => (
-                    <tr key={line.key} className="border-t border-zinc-800/70">
+                    <tr key={line.key} className="row-divider">
                       <td className="py-1.5">
-                        <span className="text-zinc-300">{line.label}</span>
-                        {line.note ? <span className="ml-1 text-[11px] text-zinc-600">· {line.note}</span> : null}
+                        <span>{line.label}</span>
+                        {line.note ? <span className="ml-1 text-[11px] text-subtle">· {line.note}</span> : null}
                       </td>
-                      <td className={"py-1.5 text-right tabular-nums " + (line.amountRMB < 0 ? "text-emerald-400" : "text-zinc-200")}>
+                      <td
+                        className={
+                          "py-1.5 text-right tabular-nums " +
+                          (line.amountRMB < 0 ? "tone-good" : "")
+                        }
+                      >
                         {fmt(line.amountRMB)}
                       </td>
-                      <td className="py-1.5 text-right tabular-nums text-zinc-500">{fmtPct(line.share)}</td>
+                      <td className="py-1.5 text-right tabular-nums text-subtle">{fmtPct(line.share)}</td>
                     </tr>
                   ))}
-                  <tr className="border-t border-zinc-700">
-                    <td className="py-2 font-medium text-zinc-200">CIF 成本合计</td>
-                    <td className="py-2 text-right font-semibold tabular-nums text-zinc-100">{fmt(breakdown.totalRMB)}</td>
-                    <td className="py-2 text-right tabular-nums text-zinc-500">100%</td>
+                  <tr className="border-t" style={{ borderColor: "var(--border-strong)" }}>
+                    <td className="py-2 font-medium">CIF 成本合计</td>
+                    <td className="py-2 text-right font-semibold tabular-nums">{fmt(breakdown.totalRMB)}</td>
+                    <td className="py-2 text-right tabular-nums text-subtle">100%</td>
                   </tr>
                 </tbody>
               </table>
@@ -524,70 +615,89 @@ export default function App() {
         </div>
 
         {/* ================= 右侧结果 ================= */}
-        <aside className="space-y-3 no-print lg:sticky lg:top-4 lg:self-start">
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4">
-            <h2 className="mb-3 text-sm font-medium text-zinc-300">整单结果</h2>
+        <aside className="no-print space-y-3 lg:sticky lg:top-4 lg:self-start">
+          <div className="panel rounded-2xl p-4">
+            <h2 className="mb-3 text-sm font-medium">整单结果</h2>
             <div className="space-y-3">
               <Metric label="FOB 成本" value={`$${fmt(r.fobCostUSD)}`} sub={`¥${fmt(r.fobCostRMB)}`} />
               <Metric label="CFR 成本" value={`$${fmt(r.cfrCostUSD)}`} sub={`含运费 $${fmt(input.freightUSD)}`} />
               <Metric label="CIF 成本" value={`$${fmt(r.cifCostUSD)}`} sub={`含保险 $${fmt(r.insuranceUSD)}`} />
-              <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-3">
-                <div className="text-xs text-indigo-300">
+              <div className="accent-card rounded-xl p-3">
+                <div className="text-xs" style={{ color: "var(--accent-text)" }}>
                   {input.incoterm} 报价（含 {input.profitRate}% 利润）
                 </div>
-                <div className="mt-1 text-2xl font-semibold text-indigo-200">${fmt(r.quoteUSD)}</div>
-                <div className="mt-0.5 text-xs text-indigo-300/70">
-                  共 {fmt(r.totalQuantity, 0)} 件 · 均摊 ${fmt(r.totalQuantity > 0 ? r.quoteUSD / r.totalQuantity : 0, 4)}/件
+                <div className="mt-1 text-2xl font-semibold" style={{ color: "var(--accent-text)" }}>
+                  ${fmt(r.quoteUSD)}
+                </div>
+                <div className="mt-0.5 text-xs" style={{ color: "var(--accent)" }}>
+                  共 {fmt(r.totalQuantity, 0)} 件 · 均摊 $
+                  {fmt(r.totalQuantity > 0 ? r.quoteUSD / r.totalQuantity : 0, 4)}/件
                 </div>
               </div>
               <Metric
                 label="换汇成本"
                 value={`${fmt(r.exchangeCost, 4)} CNY/USD`}
-                sub={r.healthy ? `低于银行汇率 ${input.exchangeRate}，有利润` : `高于银行汇率 ${input.exchangeRate}，亏损`}
+                sub={
+                  r.healthy
+                    ? `低于银行汇率 ${input.exchangeRate}，有利润`
+                    : `高于银行汇率 ${input.exchangeRate}，亏损`
+                }
                 tone={r.healthy ? "good" : "bad"}
               />
               <Metric label="整单利润" value={`$${fmt(r.profitUSD)}`} sub={`≈ ¥${fmt(r.profitRMB)}`} />
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3 text-xs">
-                <div className="flex justify-between text-zinc-500">
+              <div className="panel-soft rounded-xl p-3 text-xs">
+                <div className="flex justify-between text-subtle">
                   <span>中间商佣金（{input.commissionRate}%）</span>
-                  <span className="tabular-nums text-zinc-300">${fmt(r.commissionUSD)}</span>
+                  <span className="tabular-nums">${fmt(r.commissionUSD)}</span>
                 </div>
-                <div className="mt-1 flex justify-between text-zinc-500">
+                <div className="mt-1 flex justify-between text-subtle">
                   <span>外汇净收入（FOB − 佣金）</span>
-                  <span className="tabular-nums text-zinc-300">${fmt(r.netIncomeUSD)}</span>
+                  <span className="tabular-nums">${fmt(r.netIncomeUSD)}</span>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4">
-            <h2 className="mb-1 text-sm font-medium text-zinc-300">各货号成本占比</h2>
-            <p className="mb-3 text-xs text-zinc-600">按{input.allocation === "value" ? "货值" : "数量"}分摊</p>
+          <div className="panel rounded-2xl p-4">
+            <h2 className="mb-1 text-sm font-medium">各货号成本占比</h2>
+            <p className="mb-3 text-xs text-subtle">
+              按
+              {input.allocation === "volume"
+                ? "计费吨"
+                : input.allocation === "quantity"
+                  ? "数量"
+                  : "货值"}
+              分摊
+            </p>
             <div className="space-y-2">
               {r.items.map((it, i) => (
                 <div key={it.id}>
                   <div className="flex justify-between text-xs">
-                    <span className="truncate text-zinc-400">{it.name || `货号 ${i + 1}`}</span>
-                    <span className="ml-2 shrink-0 tabular-nums text-zinc-500">{fmtPct(it.share)}</span>
+                    <span className="truncate text-muted">{it.name || `货号 ${i + 1}`}</span>
+                    <span className="ml-2 shrink-0 tabular-nums text-subtle">{fmtPct(it.share)}</span>
                   </div>
-                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-zinc-800">
-                    <div className="h-full rounded-full bg-indigo-500/70" style={{ width: `${Math.min(100, it.share * 100)}%` }} />
+                  <div className="track mt-1 h-1.5 overflow-hidden rounded-full">
+                    <div
+                      className="bar h-full rounded-full"
+                      style={{ width: `${Math.min(100, it.share * 100)}%` }}
+                    />
                   </div>
                 </div>
               ))}
-              {r.items.length === 0 ? <p className="text-xs text-zinc-600">暂无货号</p> : null}
+              {r.items.length === 0 ? <p className="text-xs text-subtle">暂无货号</p> : null}
             </div>
           </div>
 
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 text-xs leading-relaxed text-zinc-500">
-            <p className="mb-1 font-medium text-zinc-400">口径说明</p>
+          <div className="panel rounded-2xl p-4 text-xs leading-relaxed text-subtle">
+            <p className="mb-1 font-medium text-muted">口径说明</p>
             <p>· 退税 = 含税采购 ÷ (1+增值税率) × 该货号退税率</p>
-            <p className="text-zinc-600">
+            <p className="text-[11px]">
               　（外贸企业「免退税」口径，依据财政部税务总局 2026 年第 11 号公告；生产企业「免抵退」不适用）
             </p>
             <p>· CIF = CFR ÷ (1 − 保险加成 × 保险费率)</p>
             <p>· 换汇成本 = 出口总成本 ÷ 外汇净收入（净收入 = FOB 报价 − 佣金）</p>
-            <p className="mt-2 text-zinc-600">
+            <p>· 计费吨 = max(体积 CBM, 重量吨)，海运拼箱 W/M 择大，1 CBM = 1000 kg</p>
+            <p className="mt-2 text-[11px]">
               退税率以税务总局「退税率文库」为准，按 HS 编码填写；输入自动保存在本机浏览器
             </p>
           </div>

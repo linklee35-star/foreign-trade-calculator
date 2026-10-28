@@ -15,6 +15,8 @@ const item = (over: Partial<QuoteItem> = {}): QuoteItem => ({
   quantity: 100,
   purchasePrice: 100,
   rebateRate: 13,
+  volumePerUnit: 0,
+  weightPerUnit: 0,
   ...over,
 });
 
@@ -204,5 +206,60 @@ describe("外贸报价计算", () => {
     const negative = computeQuote({ ...base, commissionRate: -20 });
     expect(over.netIncomeUSD).toBe(0);
     expect(negative.netIncomeUSD).toBeCloseTo(negative.fobCostUSD * 1.1, 1);
+  });
+
+  it("按体积重分摊：泡货按体积、重货按重量，各自择大后分费用", () => {
+    const r = computeQuote({
+      ...base,
+      allocation: "volume",
+      items: [
+        // 泡货：1 件 0.5 CBM、10 kg → 50 CBM vs 1 吨 → 按体积 50 计费吨
+        item({ id: "bulky", quantity: 100, volumePerUnit: 0.5, weightPerUnit: 10 }),
+        // 重货：1 件 0.001 CBM、25 kg → 0.1 CBM vs 2.5 吨 → 按重量 2.5 计费吨
+        item({ id: "heavy", quantity: 100, volumePerUnit: 0.001, weightPerUnit: 25 }),
+      ],
+    });
+    const bulky = r.items[0];
+    const heavy = r.items[1];
+    expect(bulky.chargeableTon).toBeCloseTo(50, 2);
+    expect(heavy.chargeableTon).toBeCloseTo(2.5, 2);
+    // 泡货计费吨远大于重货，分摊的费用也应该远大于
+    expect(bulky.allocatedRMB).toBeGreaterThan(heavy.allocatedRMB);
+    expect(bulky.share).toBeGreaterThan(heavy.share);
+  });
+
+  it("整单计费吨 = max(总体积, 总重量 ÷ 1000)", () => {
+    const bulky = computeQuote({
+      ...base,
+      items: [item({ quantity: 10, volumePerUnit: 2, weightPerUnit: 1 })],
+    });
+    // 20 CBM vs 0.01 吨 → 20
+    expect(bulky.totalVolumeCBM).toBeCloseTo(20, 3);
+    expect(bulky.chargeableTon).toBeCloseTo(20, 3);
+
+    const heavy = computeQuote({
+      ...base,
+      items: [item({ quantity: 100, volumePerUnit: 0.01, weightPerUnit: 30 })],
+    });
+    // 1 CBM vs 3 吨 → 3
+    expect(heavy.totalVolumeCBM).toBeCloseTo(1, 3);
+    expect(heavy.totalWeightKg).toBeCloseTo(3000, 1);
+    expect(heavy.chargeableTon).toBeCloseTo(3, 3);
+  });
+
+  it("选了按体积重但没填体积/重量时，自动退回货值分摊（不破坏各行之和 = 整单）", () => {
+    const r = computeQuote({
+      ...base,
+      allocation: "volume",
+      items: [
+        item({ id: "a", purchasePrice: 100, quantity: 100 }),
+        item({ id: "b", purchasePrice: 300, quantity: 100 }),
+      ],
+    });
+    const sumCif = r.items.reduce((s, i) => s + i.cifCostRMB, 0);
+    expect(sumCif).toBeCloseTo(r.cifCostRMB, 0);
+    expect(r.chargeableTon).toBe(0);
+    // 退回货值口径：高价行摊得更多
+    expect(r.items[1].share).toBeGreaterThan(r.items[0].share);
   });
 });

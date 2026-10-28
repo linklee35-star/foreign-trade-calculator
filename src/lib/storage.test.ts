@@ -15,7 +15,17 @@ import type { QuoteInput } from "./types";
 
 const FALLBACK: QuoteInput = {
   items: [
-    { id: "item-1", name: "默认货号", spec: "", hsCode: "", quantity: 100, purchasePrice: 100, rebateRate: 13 },
+    {
+      id: "item-1",
+      name: "默认货号",
+      spec: "",
+      hsCode: "",
+      quantity: 100,
+      purchasePrice: 100,
+      rebateRate: 13,
+      volumePerUnit: 0.02,
+      weightPerUnit: 0.5,
+    },
   ],
   vatRate: 13,
   domesticFees: 2000,
@@ -64,8 +74,28 @@ describe("输入持久化", () => {
     const edited: QuoteInput = {
       ...FALLBACK,
       items: [
-        { id: "a", name: "货号A", spec: "20cm", hsCode: "3926909090", quantity: 500, purchasePrice: 88.5, rebateRate: 9 },
-        { id: "b", name: "货号B", spec: "", hsCode: "", quantity: 200, purchasePrice: 12, rebateRate: 0 },
+        {
+          id: "a",
+          name: "货号A",
+          spec: "20cm",
+          hsCode: "3926909090",
+          quantity: 500,
+          purchasePrice: 88.5,
+          rebateRate: 9,
+          volumePerUnit: 0.015,
+          weightPerUnit: 0.8,
+        },
+        {
+          id: "b",
+          name: "货号B",
+          spec: "",
+          hsCode: "",
+          quantity: 200,
+          purchasePrice: 12,
+          rebateRate: 0,
+          volumePerUnit: 0,
+          weightPerUnit: 2,
+        },
       ],
       incoterm: "FOB",
       allocation: "quantity",
@@ -143,6 +173,23 @@ describe("输入持久化", () => {
       }),
     });
     expect(readInput(store, FALLBACK).items[0].quantity).toBe(0);
+  });
+
+  it("老存档没有体积/重量字段时补 0，不丢整行", () => {
+    const store = memoryStore({
+      [STORAGE_KEY]: JSON.stringify({
+        items: [{ id: "old", name: "老数据", quantity: 10, purchasePrice: 5, rebateRate: 13 }],
+      }),
+    });
+    const saved = readInput(store, FALLBACK).items[0];
+    expect(saved.name).toBe("老数据");
+    expect(saved.volumePerUnit).toBe(0);
+    expect(saved.weightPerUnit).toBe(0);
+  });
+
+  it("分摊方式接受 volume（按计费吨）", () => {
+    const store = memoryStore({ [STORAGE_KEY]: JSON.stringify({ allocation: "volume" }) });
+    expect(readInput(store, FALLBACK).allocation).toBe("volume");
   });
 
   it("明细全坏时回退默认行，不产生空订单", () => {

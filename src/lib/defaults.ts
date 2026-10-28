@@ -11,6 +11,8 @@ export const DEFAULT_INPUT: QuoteInput = {
       quantity: 100,
       purchasePrice: 100,
       rebateRate: 13,
+      volumePerUnit: 0.02,
+      weightPerUnit: 0.5,
     },
   ],
   vatRate: 13,

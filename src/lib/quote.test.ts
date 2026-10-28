@@ -27,6 +27,9 @@ const base: QuoteInput = {
   bankFee: 500,
   certFee: 500,
   freightUSD: 1000,
+  freightMode: "total",
+  freightRatePerRT: 45,
+  minChargeableTon: 0,
   insuranceRate: 0.3,
   insuranceMarkup: 110,
   exchangeRate: 7.1,
@@ -261,5 +264,71 @@ describe("外贸报价计算", () => {
     expect(r.chargeableTon).toBe(0);
     // 退回货值口径：高价行摊得更多
     expect(r.items[1].share).toBeGreaterThan(r.items[0].share);
+  });
+
+  it("按计费吨单价计费：海运费 = 单价 × 实际计费吨", () => {
+    const r = computeQuote({
+      ...base,
+      freightMode: "perRT",
+      freightRatePerRT: 45,
+      items: [item({ quantity: 100, volumePerUnit: 0.2, weightPerUnit: 1 })],
+    });
+    // 20 CBM vs 0.1 吨 → 20 R/T
+    expect(r.chargeableTon).toBeCloseTo(20, 3);
+    expect(r.billableTon).toBeCloseTo(20, 3);
+    expect(r.freightUSD).toBeCloseTo(20 * 45, 2);
+    // 整单总额模式下的 1000 被忽略
+    expect(r.freightUSD).not.toBe(base.freightUSD);
+  });
+
+  it("最低计费吨生效：实际计费吨不足时按最低计收", () => {
+    const r = computeQuote({
+      ...base,
+      freightMode: "perRT",
+      freightRatePerRT: 45,
+      minChargeableTon: 2,
+      items: [item({ quantity: 10, volumePerUnit: 0.05, weightPerUnit: 1 })], // 0.5 R/T
+    });
+    expect(r.chargeableTon).toBeCloseTo(0.5, 3);
+    expect(r.billableTon).toBeCloseTo(2, 3); // 被抬到最低
+    expect(r.freightUSD).toBeCloseTo(2 * 45, 2);
+  });
+
+  it("实际计费吨超过最低时，最低值不参与计算（不会压低运费）", () => {
+    const r = computeQuote({
+      ...base,
+      freightMode: "perRT",
+      freightRatePerRT: 45,
+      minChargeableTon: 2,
+      items: [item({ quantity: 100, volumePerUnit: 0.1, weightPerUnit: 1 })], // 10 R/T
+    });
+    expect(r.billableTon).toBeCloseTo(10, 3);
+    expect(r.freightUSD).toBeCloseTo(10 * 45, 2);
+  });
+
+  it("整单总额模式下最低计费吨不起作用（总额已含最低，不重复计）", () => {
+    const withMin = computeQuote({ ...base, freightMode: "total", minChargeableTon: 5 });
+    const withoutMin = computeQuote({ ...base, freightMode: "total", minChargeableTon: 0 });
+    expect(withMin.freightUSD).toBe(withoutMin.freightUSD);
+    expect(withMin.freightUSD).toBe(base.freightUSD);
+    expect(withMin.billableTon).toBe(0);
+  });
+
+  it("按吨单价计费时，分摊不变量仍成立（各行之和 = 整单）", () => {
+    const r = computeQuote({
+      ...base,
+      allocation: "volume",
+      freightMode: "perRT",
+      freightRatePerRT: 50,
+      minChargeableTon: 3,
+      items: [
+        item({ id: "a", quantity: 100, volumePerUnit: 0.1, weightPerUnit: 2 }),
+        item({ id: "b", quantity: 100, volumePerUnit: 0.02, weightPerUnit: 8 }),
+      ],
+    });
+    const sumCif = r.items.reduce((s, i) => s + i.cifCostRMB, 0);
+    expect(sumCif).toBeCloseTo(r.cifCostRMB, 0);
+    const sumAmount = r.items.reduce((s, i) => s + i.amountUSD, 0);
+    expect(sumAmount).toBeCloseTo(r.quoteUSD, 0);
   });
 });

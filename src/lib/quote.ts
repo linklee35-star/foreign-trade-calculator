@@ -105,6 +105,8 @@ export function computeQuote(input: QuoteInput): QuoteResult {
       totalVolumeCBM: 0,
       totalWeightKg: 0,
       chargeableTon: 0,
+      billableTon: 0,
+      freightUSD: 0,
       items: baseRows.map((row) => ({
         id: row.item.id,
         name: row.item.name,
@@ -130,7 +132,18 @@ export function computeQuote(input: QuoteInput): QuoteResult {
 
   // —— 2. 整单费用与三级成本 ——
   const domesticTotal = num(input.domesticFees) + num(input.bankFee) + num(input.certFee);
-  const freightUSD = num(input.freightUSD);
+
+  // 海运费两种计费方式：
+  //   total  —— 货代给的整单总额（最低计费吨已包含在里面，不再重复计算）
+  //   perRT  —— 按计费吨单价，此时「最低计费吨」才有意义：不足按最低计收
+  const billableTon =
+    input.freightMode === "perRT"
+      ? Math.max(chargeableTon, Math.max(0, num(input.minChargeableTon)))
+      : 0;
+  const freightUSD =
+    input.freightMode === "perRT"
+      ? billableTon * Math.max(0, num(input.freightRatePerRT))
+      : num(input.freightUSD);
 
   const fobCostRMB = netGoodsCostRMB + domesticTotal;
   const fobCostUSD = fobCostRMB / rate;
@@ -225,6 +238,7 @@ export function computeQuote(input: QuoteInput): QuoteResult {
     fobCostRMB: round(fobCostRMB),
     fobCostUSD: round(fobCostUSD),
     cfrCostUSD: round(cfrCostUSD),
+    freightUSD: round(freightUSD),
     insuranceUSD: round(insuranceUSD),
     cifCostUSD: round(cifCostUSD),
     cifCostRMB: round(cifCostRMB),
@@ -239,6 +253,7 @@ export function computeQuote(input: QuoteInput): QuoteResult {
     totalVolumeCBM: round(totalVolumeCBM, 4),
     totalWeightKg: round(totalWeightKg, 2),
     chargeableTon: round(chargeableTon, 4),
+    billableTon: round(billableTon, 4),
     items,
   };
 }

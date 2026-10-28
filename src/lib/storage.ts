@@ -1,4 +1,4 @@
-import type { AllocationMode, Incoterm, QuoteInput, QuoteItem } from "./types";
+import type { AllocationMode, FreightMode, Incoterm, QuoteInput, QuoteItem } from "./types";
 
 const STORAGE_KEY = "foreign-trade-quote-input-v2";
 
@@ -18,6 +18,8 @@ const NUMERIC_KEYS = [
   "bankFee",
   "certFee",
   "freightUSD",
+  "freightRatePerRT",
+  "minChargeableTon",
   "insuranceRate",
   "insuranceMarkup",
   "exchangeRate",
@@ -30,6 +32,7 @@ const TEXT_KEYS = ["quoteNo", "customer", "pol", "pod", "leadTime", "paymentTerm
 
 const ALLOCATIONS: AllocationMode[] = ["value", "quantity", "volume"];
 const INCOTERMS: Incoterm[] = ["FOB", "CFR", "CIF"];
+const FREIGHT_MODES: FreightMode[] = ["total", "perRT"];
 
 const isFiniteNumber = (v: unknown): v is number =>
   typeof v === "number" && Number.isFinite(v);
@@ -102,6 +105,12 @@ export function readInput(
       INCOTERMS.includes(saved.incoterm as Incoterm)
     ) {
       merged.incoterm = saved.incoterm as Incoterm;
+    }
+    if (
+      typeof saved.freightMode === "string" &&
+      FREIGHT_MODES.includes(saved.freightMode as FreightMode)
+    ) {
+      merged.freightMode = saved.freightMode as FreightMode;
     }
 
     if (Array.isArray(saved.items)) {

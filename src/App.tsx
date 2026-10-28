@@ -3,7 +3,7 @@ import { computeQuote, createItem } from "./lib/quote";
 import { buildBreakdown } from "./lib/breakdown";
 import { DEFAULT_INPUT, defaultQuoteNo, newItemId } from "./lib/defaults";
 import { clearInput, readInput, writeInput, type StorageLike } from "./lib/storage";
-import type { AllocationMode, Incoterm, QuoteInput, QuoteItem } from "./lib/types";
+import type { AllocationMode, FreightMode, Incoterm, QuoteInput, QuoteItem } from "./lib/types";
 
 /** 隐私模式下访问 localStorage 会抛异常，统一在这里兜住 */
 function getStore(): StorageLike | null {
@@ -504,11 +504,55 @@ export default function App() {
             title="③ 国际物流与费用分摊"
             desc="整单费用按所选口径分摊到每个货号，才能看出哪个货号吃掉成本"
           >
+            <div className="mb-3">
+              <Segmented<FreightMode>
+                label="海运费计费方式"
+                value={input.freightMode}
+                onChange={(v) => set("freightMode", v)}
+                options={[
+                  { value: "total", label: "整单总额", hint: "货代给的总价" },
+                  { value: "perRT", label: "按计费吨单价", hint: "USD/R/T" },
+                ]}
+              />
+            </div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <Field label="海运费" unit="$" value={input.freightUSD} onChange={(v) => set("freightUSD", v)} />
+              {input.freightMode === "total" ? (
+                <Field
+                  label="海运费总额"
+                  unit="$"
+                  value={input.freightUSD}
+                  onChange={(v) => set("freightUSD", v)}
+                />
+              ) : (
+                <>
+                  <Field
+                    label="海运单价"
+                    unit="$/R/T"
+                    value={input.freightRatePerRT}
+                    onChange={(v) => set("freightRatePerRT", v)}
+                    step={0.5}
+                    hint="货代报价"
+                  />
+                  <Field
+                    label="最低计费吨"
+                    unit="R/T"
+                    value={input.minChargeableTon}
+                    onChange={(v) => set("minChargeableTon", v)}
+                    step={0.5}
+                    hint="0 = 不设下限"
+                  />
+                </>
+              )}
               <Field label="保险费率" unit="%" value={input.insuranceRate} onChange={(v) => set("insuranceRate", v)} step={0.01} hint="常见 0.3" />
               <Field label="保险加成" unit="%" value={input.insuranceMarkup} onChange={(v) => set("insuranceMarkup", v)} hint="常见 110" />
             </div>
+            {input.freightMode === "perRT" ? (
+              <p className="mt-2 text-[11px] text-subtle">
+                实际计费吨 = max(计费吨 {fmt(r.chargeableTon, 3)}, 最低 {fmt(input.minChargeableTon, 3)}) ={" "}
+                <span className="text-muted">{fmt(r.billableTon, 3)} R/T</span> → 海运费 $
+                {fmt(r.freightUSD)}（单价 ${fmt(input.freightRatePerRT, 2)}/R/T）
+              </p>
+            ) : null}
             <div className="mt-3">
               <Segmented<AllocationMode>
                 label="费用分摊方式"
@@ -620,7 +664,7 @@ export default function App() {
             <h2 className="mb-3 text-sm font-medium">整单结果</h2>
             <div className="space-y-3">
               <Metric label="FOB 成本" value={`$${fmt(r.fobCostUSD)}`} sub={`¥${fmt(r.fobCostRMB)}`} />
-              <Metric label="CFR 成本" value={`$${fmt(r.cfrCostUSD)}`} sub={`含运费 $${fmt(input.freightUSD)}`} />
+              <Metric label="CFR 成本" value={`$${fmt(r.cfrCostUSD)}`} sub={`含运费 $${fmt(r.freightUSD)}`} />
               <Metric label="CIF 成本" value={`$${fmt(r.cifCostUSD)}`} sub={`含保险 $${fmt(r.insuranceUSD)}`} />
               <div className="accent-card rounded-xl p-3">
                 <div className="text-xs" style={{ color: "var(--accent-text)" }}>
@@ -697,6 +741,7 @@ export default function App() {
             <p>· CIF = CFR ÷ (1 − 保险加成 × 保险费率)</p>
             <p>· 换汇成本 = 出口总成本 ÷ 外汇净收入（净收入 = FOB 报价 − 佣金）</p>
             <p>· 计费吨 = max(体积 CBM, 重量吨)，海运拼箱 W/M 择大，1 CBM = 1000 kg</p>
+            <p>· 按吨单价计费时：海运费 = 单价 × max(计费吨, 最低计费吨)</p>
             <p className="mt-2 text-[11px]">
               退税率以税务总局「退税率文库」为准，按 HS 编码填写；输入自动保存在本机浏览器
             </p>

@@ -30,6 +30,13 @@ export type AllocationMode = "value" | "quantity" | "volume";
 /** 报价术语：决定报价基数用哪一级成本 */
 export type Incoterm = "FOB" | "CFR" | "CIF";
 
+/**
+ * 海运费计费方式
+ * - total：直接填整单运费（货代给的总额，最低计费吨已包含在里面）
+ * - perRT：按计费吨单价算（货代报 USD xx/R/T），此时最低计费吨才有意义
+ */
+export type FreightMode = "total" | "perRT";
+
 /** 报价输入（金额单位见字段注释：RMB 或 USD） */
 export interface QuoteInput {
   /** 商品明细（至少一行） */
@@ -45,8 +52,14 @@ export interface QuoteInput {
   /** 认证/检测/其他（RMB，整单） */
   certFee: number;
 
-  /** 海运费（USD，整单） */
+  /** 海运费（USD，整单）—— 仅 freightMode = "total" 时使用 */
   freightUSD: number;
+  /** 海运费计费方式 */
+  freightMode: FreightMode;
+  /** 海运单价（USD / 计费吨 R/T）—— 仅 freightMode = "perRT" 时使用 */
+  freightRatePerRT: number;
+  /** 最低计费吨（R/T）：不足按最低计收，0 表示不设下限 */
+  minChargeableTon: number;
   /** 保险费率 %（常见 0.3） */
   insuranceRate: number;
   /** 保险加成 %（常见 110） */
@@ -134,6 +147,8 @@ export interface QuoteResult {
   fobCostUSD: number;
   /** CFR 成本（USD） */
   cfrCostUSD: number;
+  /** 实际计入成本的海运费（USD）：按吨单价模式 = 单价 × 实际计费吨 */
+  freightUSD: number;
   /** 保险费（USD） */
   insuranceUSD: number;
   /** CIF 成本（USD / RMB） */
@@ -166,6 +181,8 @@ export interface QuoteResult {
    * 注意：各行计费吨相加可能大于它（每行各自择大的结果），分摊按行计费吨占比归一化。
    */
   chargeableTon: number;
+  /** 实际计费吨 = max(计费吨, 最低计费吨)，按吨单价模式下用于算运费 */
+  billableTon: number;
   /** 各货号明细 */
   items: ItemResult[];
 }

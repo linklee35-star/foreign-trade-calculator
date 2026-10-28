@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { computeQuote, createItem } from "./lib/quote";
 import { buildBreakdown } from "./lib/breakdown";
+import { buildMarginScenarios, buildTermScenarios } from "./lib/scenarios";
 import { DEFAULT_INPUT, defaultQuoteNo, newItemId } from "./lib/defaults";
 import { clearInput, readInput, writeInput, type StorageLike } from "./lib/storage";
 import type { AllocationMode, FreightMode, Incoterm, QuoteInput, QuoteItem } from "./lib/types";
@@ -235,6 +236,11 @@ export default function App() {
 
   const r = useMemo(() => computeQuote(input), [input]);
   const breakdown = useMemo(() => buildBreakdown(input, r), [input, r]);
+  const termScenarios = useMemo(() => buildTermScenarios(input), [input]);
+  const marginScenarios = useMemo(() => buildMarginScenarios(input, 3), [input]);
+  /** 术语对应的成本口径，用来在对比表里显示"这个报价是加在哪个成本上的" */
+  const costOf = (term: Incoterm, s: (typeof termScenarios)[number]) =>
+    term === "FOB" ? s.result.fobCostUSD : term === "CFR" ? s.result.cfrCostUSD : s.result.cifCostUSD;
   const today = useMemo(() => new Date().toLocaleDateString("zh-CN"), []);
   // 报价单号留空时按日期自动生成，用户填了就用自己的
   const quoteNo = input.quoteNo.trim() || defaultQuoteNo();
@@ -615,6 +621,103 @@ export default function App() {
                 onChange={(v) => set("paymentTerm", v)}
                 placeholder="T/T 30% deposit, balance against B/L copy"
               />
+            </div>
+          </Section>
+
+          {/* ⑥ 方案对比 */}
+          <Section
+            title="⑥ 方案对比"
+            desc="同一份订单换术语/利润率重算——客户问「FOB 多少、CIF 多少」时直接念，不用来回切"
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-subtle">
+                    <th className="pb-2 text-left font-normal">术语</th>
+                    <th className="pb-2 text-right font-normal">成本 $</th>
+                    <th className="pb-2 text-right font-normal">报价 $</th>
+                    <th className="pb-2 text-right font-normal">均摊单价 $</th>
+                    <th className="pb-2 text-right font-normal">利润 $</th>
+                    <th className="pb-2 text-right font-normal">换汇成本</th>
+                    <th className="pb-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {termScenarios.map((s) => (
+                    <tr
+                      key={s.incoterm}
+                      className={"row-divider " + (s.isCurrent ? "bg-[var(--accent-bg)]" : "")}
+                    >
+                      <td className="py-1.5 font-medium">{s.incoterm}</td>
+                      <td className="py-1.5 text-right tabular-nums text-muted">
+                        {fmt(costOf(s.incoterm, s))}
+                      </td>
+                      <td className="py-1.5 text-right font-medium tabular-nums">
+                        {fmt(s.result.quoteUSD)}
+                      </td>
+                      <td className="py-1.5 text-right tabular-nums text-muted">
+                        {fmt(
+                          s.result.totalQuantity > 0
+                            ? s.result.quoteUSD / s.result.totalQuantity
+                            : 0,
+                          4,
+                        )}
+                      </td>
+                      <td className="py-1.5 text-right tabular-nums text-muted">
+                        {fmt(s.result.profitUSD)}
+                      </td>
+                      <td className="py-1.5 text-right tabular-nums text-muted">
+                        {fmt(s.result.exchangeCost, 4)}
+                      </td>
+                      <td className="py-1.5 text-right">
+                        {s.isCurrent ? (
+                          <span className="text-[11px] text-subtle">当前</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => set("incoterm", s.incoterm)}
+                            className="rounded-md px-2 py-1 text-xs text-muted hover:bg-[var(--panel-2)] hover:text-[var(--accent-text)]"
+                          >
+                            采用
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4">
+              <p className="mb-2 text-xs text-subtle">
+                利润率敏感性（基于当前 {input.incoterm} 术语）
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {marginScenarios.map((s) => (
+                  <div
+                    key={s.profitRate}
+                    className={
+                      "min-w-[120px] rounded-xl px-3 py-2 text-xs " +
+                      (s.isCurrent ? "accent-card" : "panel-soft")
+                    }
+                  >
+                    <div className="text-subtle">
+                      利润率 {s.profitRate}%{s.isCurrent ? " · 当前" : ""}
+                    </div>
+                    <div className="mt-0.5 text-base font-semibold tabular-nums">
+                      ${fmt(s.result.quoteUSD)}
+                    </div>
+                    <div
+                      className={
+                        "mt-0.5 tabular-nums " +
+                        (s.result.healthy ? "tone-good" : "tone-bad")
+                      }
+                    >
+                      换汇 {fmt(s.result.exchangeCost, 4)}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </Section>
 

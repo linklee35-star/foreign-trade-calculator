@@ -22,10 +22,11 @@ const NUMERIC_KEYS = [
   "insuranceMarkup",
   "exchangeRate",
   "profitRate",
+  "commissionRate",
   "validDays",
 ] as const;
 
-const TEXT_KEYS = ["customer", "paymentTerm"] as const;
+const TEXT_KEYS = ["quoteNo", "customer", "pol", "pod", "leadTime", "paymentTerm"] as const;
 
 const ALLOCATIONS: AllocationMode[] = ["value", "quantity"];
 const INCOTERMS: Incoterm[] = ["FOB", "CFR", "CIF"];

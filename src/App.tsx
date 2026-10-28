@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { computeQuote, createItem } from "./lib/quote";
 import { buildBreakdown } from "./lib/breakdown";
-import { DEFAULT_INPUT, newItemId } from "./lib/defaults";
+import { DEFAULT_INPUT, defaultQuoteNo, newItemId } from "./lib/defaults";
 import { clearInput, readInput, writeInput, type StorageLike } from "./lib/storage";
 import type { AllocationMode, Incoterm, QuoteInput, QuoteItem } from "./lib/types";
 
@@ -200,6 +200,8 @@ export default function App() {
   const r = useMemo(() => computeQuote(input), [input]);
   const breakdown = useMemo(() => buildBreakdown(input, r), [input, r]);
   const today = useMemo(() => new Date().toLocaleDateString("zh-CN"), []);
+  // 报价单号留空时按日期自动生成，用户填了就用自己的
+  const quoteNo = input.quoteNo.trim() || defaultQuoteNo();
   const validUntil = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() + (input.validDays || 0));
@@ -219,13 +221,17 @@ export default function App() {
         <div className="flex items-start justify-between border-b-2 border-zinc-800 pb-2">
           <div>
             <h1 className="text-2xl font-bold">出口报价单 / QUOTATION</h1>
-            <p className="mt-1 text-sm">To: {input.customer || "—"}</p>
+            <p className="mt-1 text-sm">Quotation No.: {quoteNo}</p>
+            <p className="text-sm">To: {input.customer || "—"}</p>
           </div>
           <div className="text-right text-xs leading-relaxed">
             <p>Date: {today}</p>
             <p>Valid until: {validUntil}</p>
             <p>
-              Term: {input.incoterm} · {input.validDays} days
+              Price term: {input.incoterm} {input.pod || "—"}
+            </p>
+            <p>
+              POL / POD: {input.pol || "—"} / {input.pod || "—"}
             </p>
           </div>
         </div>
@@ -264,8 +270,14 @@ export default function App() {
         </table>
 
         <div className="mt-4 text-xs leading-relaxed">
-          <p>Price term: {input.incoterm} — {incotermNote[input.incoterm]}</p>
+          <p>
+            Price term: {input.incoterm} {input.pod || "—"} — {incotermNote[input.incoterm]}
+          </p>
+          <p>
+            Port of loading: {input.pol || "—"} · Port of destination: {input.pod || "—"}
+          </p>
           <p>Payment: {input.paymentTerm || "—"}</p>
+          <p>Lead time: {input.leadTime || "—"}</p>
           <p>Validity: {input.validDays} days from the date above.</p>
         </div>
       </div>
@@ -433,10 +445,11 @@ export default function App() {
           </Section>
 
           {/* ④ 报价参数 */}
-          <Section title="④ 报价参数">
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <Section title="④ 报价参数" desc="佣金只影响换汇成本（净收入），不改变给客户的报价">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Field label="银行汇率" unit="CNY/USD" value={input.exchangeRate} onChange={(v) => set("exchangeRate", v)} step={0.01} />
               <Field label="目标利润率" unit="%" value={input.profitRate} onChange={(v) => set("profitRate", v)} hint="按所选术语成本加成" />
+              <Field label="中间商佣金" unit="%" value={input.commissionRate} onChange={(v) => set("commissionRate", v)} hint="常见 3~5" />
               <Field label="增值税率" unit="%" value={input.vatRate} onChange={(v) => set("vatRate", v)} hint="一般 13" />
             </div>
             <div className="mt-3">
@@ -455,11 +468,20 @@ export default function App() {
           </Section>
 
           {/* ⑤ 报价单信息 */}
-          <Section title="⑤ 报价单信息" desc="打印时显示在报价单抬头，只有客户能看到">
+          <Section
+            title="⑤ 报价单信息"
+            desc="打印时显示在报价单抬头。Incoterms 必须带目的港——只写 CIF 是无效条款"
+          >
             <div className="grid gap-3 sm:grid-cols-3">
+              <TextField label="报价单号" value={input.quoteNo} onChange={(v) => set("quoteNo", v)} placeholder={defaultQuoteNo()} />
               <TextField label="客户名称" value={input.customer} onChange={(v) => set("customer", v)} placeholder="ACME Trading Co." />
-              <TextField label="付款方式" value={input.paymentTerm} onChange={(v) => set("paymentTerm", v)} placeholder="T/T 30% deposit" />
               <Field label="报价有效期" unit="天" value={input.validDays} onChange={(v) => set("validDays", v)} />
+              <TextField label="装运港 POL" value={input.pol} onChange={(v) => set("pol", v)} placeholder="Shanghai" />
+              <TextField label="目的港 POD" value={input.pod} onChange={(v) => set("pod", v)} placeholder="Hamburg" />
+              <TextField label="交货期" value={input.leadTime} onChange={(v) => set("leadTime", v)} placeholder="30 days after deposit" />
+            </div>
+            <div className="mt-3">
+              <TextField label="付款方式" value={input.paymentTerm} onChange={(v) => set("paymentTerm", v)} placeholder="T/T 30% deposit, balance against B/L copy" />
             </div>
           </Section>
 
@@ -525,6 +547,16 @@ export default function App() {
                 tone={r.healthy ? "good" : "bad"}
               />
               <Metric label="整单利润" value={`$${fmt(r.profitUSD)}`} sub={`≈ ¥${fmt(r.profitRMB)}`} />
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3 text-xs">
+                <div className="flex justify-between text-zinc-500">
+                  <span>中间商佣金（{input.commissionRate}%）</span>
+                  <span className="tabular-nums text-zinc-300">${fmt(r.commissionUSD)}</span>
+                </div>
+                <div className="mt-1 flex justify-between text-zinc-500">
+                  <span>外汇净收入（FOB − 佣金）</span>
+                  <span className="tabular-nums text-zinc-300">${fmt(r.netIncomeUSD)}</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -549,11 +581,14 @@ export default function App() {
 
           <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 text-xs leading-relaxed text-zinc-500">
             <p className="mb-1 font-medium text-zinc-400">口径说明</p>
-            <p>· 退税 = 含税采购 ÷ (1+增值税率) × 该货号退税率，需增值税专用发票</p>
+            <p>· 退税 = 含税采购 ÷ (1+增值税率) × 该货号退税率</p>
+            <p className="text-zinc-600">
+              　（外贸企业「免退税」口径，依据财政部税务总局 2026 年第 11 号公告；生产企业「免抵退」不适用）
+            </p>
             <p>· CIF = CFR ÷ (1 − 保险加成 × 保险费率)</p>
-            <p>· 换汇成本固定按 FOB 算，与所选术语无关，便于横向比较</p>
+            <p>· 换汇成本 = 出口总成本 ÷ 外汇净收入（净收入 = FOB 报价 − 佣金）</p>
             <p className="mt-2 text-zinc-600">
-              输入自动保存在本机浏览器；打印版报价单不含任何成本信息
+              退税率以税务总局「退税率文库」为准，按 HS 编码填写；输入自动保存在本机浏览器
             </p>
           </div>
         </aside>

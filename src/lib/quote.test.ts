@@ -29,9 +29,14 @@ const base: QuoteInput = {
   insuranceMarkup: 110,
   exchangeRate: 7.1,
   profitRate: 10,
+  commissionRate: 0,
   allocation: "value",
+  quoteNo: "",
   customer: "",
   incoterm: "CIF",
+  pol: "Shanghai",
+  pod: "",
+  leadTime: "",
   validDays: 15,
   paymentTerm: "",
 };
@@ -172,5 +177,32 @@ describe("外贸报价计算", () => {
     expect(r.items).toHaveLength(1);
     expect(r.items[0].purchaseTotal).toBe(0);
     expect(Number.isFinite(r.quoteUSD)).toBe(true);
+  });
+
+  it("佣金只影响净收入与换汇成本，不改变给客户的报价", () => {
+    const noCommission = computeQuote({ ...base, commissionRate: 0 });
+    const withCommission = computeQuote({ ...base, commissionRate: 5 });
+
+    // 报价对客户是同一个数
+    expect(withCommission.quoteUSD).toBe(noCommission.quoteUSD);
+    // 净收入 = FOB 报价 × (1 − 佣金)
+    expect(withCommission.netIncomeUSD).toBeCloseTo(noCommission.fobCostUSD * 1.1 * 0.95, 1);
+    expect(withCommission.commissionUSD).toBeCloseTo(withCommission.quoteUSD * 0.05, 1);
+    // 收入变少 → 换汇成本变差（数字更大）
+    expect(withCommission.exchangeCost).toBeGreaterThan(noCommission.exchangeCost);
+  });
+
+  it("佣金 100% 时净收入为 0，换汇成本归零并判为不健康（不出现 Infinity）", () => {
+    const r = computeQuote({ ...base, commissionRate: 100 });
+    expect(r.netIncomeUSD).toBe(0);
+    expect(r.exchangeCost).toBe(0);
+    expect(r.healthy).toBe(false);
+  });
+
+  it("佣金率超出 0~100 时被夹到边界，不产生负数收入", () => {
+    const over = computeQuote({ ...base, commissionRate: 150 });
+    const negative = computeQuote({ ...base, commissionRate: -20 });
+    expect(over.netIncomeUSD).toBe(0);
+    expect(negative.netIncomeUSD).toBeCloseTo(negative.fobCostUSD * 1.1, 1);
   });
 });

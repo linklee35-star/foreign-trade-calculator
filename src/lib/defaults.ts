@@ -22,12 +22,25 @@ export const DEFAULT_INPUT: QuoteInput = {
   insuranceMarkup: 110,
   exchangeRate: 7.1,
   profitRate: 10,
+  commissionRate: 0,
   allocation: "value",
+  quoteNo: "",
   customer: "",
   incoterm: "CIF",
+  pol: "Shanghai",
+  pod: "",
+  leadTime: "30 days after deposit",
   validDays: 15,
   paymentTerm: "T/T 30% deposit, balance against B/L copy",
 };
+
+/** 报价单号默认值：Q-YYYYMMDD（留空时使用，用户可改） */
+export function defaultQuoteNo(date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `Q-${y}${m}${d}`;
+}
 
 let seq = 0;
 

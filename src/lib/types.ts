@@ -47,13 +47,27 @@ export interface QuoteInput {
   exchangeRate: number;
   /** 目标利润率 %（基于所选术语的成本加成） */
   profitRate: number;
+  /**
+   * 中间商佣金 %（按报价金额计）。
+   * 换汇成本要用「外汇净收入」而不是报价本身，
+   * 佣金是净收入里必须扣掉的部分（外贸常见 3~5%）。
+   */
+  commissionRate: number;
 
   /** 整单费用分摊方式 */
   allocation: AllocationMode;
 
   /** —— 报价单抬头信息 —— */
+  /** 报价单号（留空则按日期自动生成） */
+  quoteNo: string;
   customer: string;
   incoterm: Incoterm;
+  /** 装运港（如 Shanghai）——Incoterms 必须带地点，只写 CIF 是无效条款 */
+  pol: string;
+  /** 目的港（如 Hamburg） */
+  pod: string;
+  /** 交货期（如 30 days after deposit） */
+  leadTime: string;
   /** 报价有效期（天） */
   validDays: number;
   /** 付款方式 */
@@ -115,6 +129,11 @@ export interface QuoteResult {
   quoteUSD: number;
   profitUSD: number;
   profitRMB: number;
+
+  /** 付给中间商的佣金（USD） */
+  commissionUSD: number;
+  /** 外汇净收入（USD）= FOB 报价 − 佣金，换汇成本的分母 */
+  netIncomeUSD: number;
 
   /** 换汇成本（RMB per USD，越低越好） */
   exchangeCost: number;

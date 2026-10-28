@@ -77,6 +77,8 @@ export function computeQuote(input: QuoteInput): QuoteResult {
       quoteUSD: 0,
       profitUSD: 0,
       profitRMB: 0,
+      commissionUSD: 0,
+      netIncomeUSD: 0,
       exchangeCost: 0,
       healthy: false,
       totalQuantity: 0,
@@ -121,9 +123,14 @@ export function computeQuote(input: QuoteInput): QuoteResult {
   const profitUSD = quoteUSD - baseCostUSD;
   const profitRMB = profitUSD * rate;
 
-  // 换汇成本口径固定用 FOB（与所选术语无关，方便横向比较）
+  // 换汇成本口径（外贸标准）：出口总成本 ÷ 出口外汇净收入
+  // 净收入 = FOB 报价 − 佣金（佣金是劳务费用，不属于卖方净收入）
+  // 固定按 FOB 口径，与所选术语无关，方便横向比较
   const fobQuoteUSD = fobCostUSD * (1 + profitRate / 100);
-  const exchangeCost = fobQuoteUSD > 0 ? fobCostRMB / fobQuoteUSD : 0;
+  const commissionRate = Math.min(100, Math.max(0, num(input.commissionRate)));
+  const commissionUSD = quoteUSD * (commissionRate / 100);
+  const netIncomeUSD = fobQuoteUSD * (1 - commissionRate / 100);
+  const exchangeCost = netIncomeUSD > 0 ? fobCostRMB / netIncomeUSD : 0;
   const healthy = exchangeCost > 0 && exchangeCost < rate;
 
   // —— 4. 费用分摊到每个货号 ——
@@ -178,6 +185,8 @@ export function computeQuote(input: QuoteInput): QuoteResult {
     quoteUSD: round(quoteUSD),
     profitUSD: round(profitUSD),
     profitRMB: round(profitRMB),
+    commissionUSD: round(commissionUSD),
+    netIncomeUSD: round(netIncomeUSD),
     exchangeCost: round(exchangeCost, 4),
     healthy,
     totalQuantity,

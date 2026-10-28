@@ -1,6 +1,6 @@
-import type { QuoteInput } from "./types";
+import type { AllocationMode, Incoterm, QuoteInput, QuoteItem } from "./types";
 
-const STORAGE_KEY = "foreign-trade-quote-input-v1";
+const STORAGE_KEY = "foreign-trade-quote-input-v2";
 
 /**
  * 只依赖 getItem/setItem/removeItem 三个方法，
@@ -11,6 +11,53 @@ export type StorageLike = {
   setItem: (key: string, value: string) => void;
   removeItem: (key: string) => void;
 };
+
+const NUMERIC_KEYS = [
+  "vatRate",
+  "domesticFees",
+  "bankFee",
+  "certFee",
+  "freightUSD",
+  "insuranceRate",
+  "insuranceMarkup",
+  "exchangeRate",
+  "profitRate",
+  "validDays",
+] as const;
+
+const TEXT_KEYS = ["customer", "paymentTerm"] as const;
+
+const ALLOCATIONS: AllocationMode[] = ["value", "quantity"];
+const INCOTERMS: Incoterm[] = ["FOB", "CFR", "CIF"];
+
+const isFiniteNumber = (v: unknown): v is number =>
+  typeof v === "number" && Number.isFinite(v);
+
+/** 单个货号的白名单校验：类型不对就丢弃整行，避免半行脏数据进计算 */
+function sanitizeItem(raw: unknown, index: number): QuoteItem | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+
+  if (
+    !isFiniteNumber(r.quantity) ||
+    !isFiniteNumber(r.purchasePrice) ||
+    !isFiniteNumber(r.rebateRate)
+  ) {
+    return null;
+  }
+
+  const text = (v: unknown) => (typeof v === "string" ? v : "");
+
+  return {
+    id: typeof r.id === "string" && r.id ? r.id : `item-restored-${index}`,
+    name: text(r.name),
+    spec: text(r.spec),
+    hsCode: text(r.hsCode),
+    quantity: Math.max(0, r.quantity),
+    purchasePrice: r.purchasePrice,
+    rebateRate: r.rebateRate,
+  };
+}
 
 /**
  * 读取上次输入。任何异常（JSON 坏、字段缺失、隐私模式禁用存储）
@@ -27,14 +74,39 @@ export function readInput(
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return fallback;
 
+    const saved = parsed as Record<string, unknown>;
     const merged: QuoteInput = { ...fallback };
-    for (const key of Object.keys(fallback) as (keyof QuoteInput)[]) {
-      const value = (parsed as Record<string, unknown>)[key];
+
+    for (const key of NUMERIC_KEYS) {
+      const value = saved[key];
       // 只接受有限数字：手改 localStorage 塞进字符串/NaN 也不能污染计算
-      if (typeof value === "number" && Number.isFinite(value)) {
-        merged[key] = value;
-      }
+      if (isFiniteNumber(value)) merged[key] = value;
     }
+    for (const key of TEXT_KEYS) {
+      const value = saved[key];
+      if (typeof value === "string") merged[key] = value;
+    }
+    if (
+      typeof saved.allocation === "string" &&
+      ALLOCATIONS.includes(saved.allocation as AllocationMode)
+    ) {
+      merged.allocation = saved.allocation as AllocationMode;
+    }
+    if (
+      typeof saved.incoterm === "string" &&
+      INCOTERMS.includes(saved.incoterm as Incoterm)
+    ) {
+      merged.incoterm = saved.incoterm as Incoterm;
+    }
+
+    if (Array.isArray(saved.items)) {
+      const items = saved.items
+        .map((item, index) => sanitizeItem(item, index))
+        .filter((item): item is QuoteItem => item !== null);
+      // 明细全坏时保留默认那一行，避免出现空订单
+      if (items.length > 0) merged.items = items;
+    }
+
     return merged;
   } catch {
     return fallback;

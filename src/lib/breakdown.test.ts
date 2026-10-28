@@ -8,10 +8,10 @@ import type { QuoteInput } from "./types";
 // ============================================================================
 
 const base: QuoteInput = {
-  purchasePrice: 100,
-  quantity: 100,
+  items: [
+    { id: "a", name: "A", spec: "", hsCode: "", quantity: 100, purchasePrice: 100, rebateRate: 13 },
+  ],
   vatRate: 13,
-  rebateRate: 13,
   domesticFees: 2000,
   bankFee: 500,
   certFee: 500,
@@ -20,6 +20,11 @@ const base: QuoteInput = {
   insuranceMarkup: 110,
   exchangeRate: 7.1,
   profitRate: 10,
+  allocation: "value",
+  customer: "",
+  incoterm: "CIF",
+  validDays: 15,
+  paymentTerm: "",
 };
 
 const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
@@ -55,13 +60,26 @@ describe("成本拆解", () => {
     expect(sum(lines.map((l) => l.share))).toBeCloseTo(1, 2);
   });
 
-  it("数量为 0 时占比全部为 0，不出现 NaN", () => {
-    const zeroQty: QuoteInput = { ...base, quantity: 0 };
-    const result = computeQuote(zeroQty);
-    const { lines, totalRMB } = buildBreakdown(zeroQty, result);
-    expect(Number.isFinite(totalRMB)).toBe(true);
-    for (const line of lines) {
-      expect(Number.isFinite(line.share)).toBe(true);
-    }
+  it("多货号时拆解仍然对上整单 CIF 成本", () => {
+    const multi: QuoteInput = {
+      ...base,
+      items: [
+        { id: "a", name: "A", spec: "", hsCode: "", quantity: 100, purchasePrice: 100, rebateRate: 13 },
+        { id: "b", name: "B", spec: "", hsCode: "", quantity: 300, purchasePrice: 20, rebateRate: 9 },
+      ],
+    };
+    const result = computeQuote(multi);
+    const { lines, totalRMB } = buildBreakdown(multi, result);
+    expect(sum(lines.map((l) => l.amountRMB))).toBeCloseTo(totalRMB, 0);
+    expect(totalRMB).toBeCloseTo(result.cifCostRMB, 0);
+  });
+
+  it("空明细时不产生拆解行，也不出现 NaN", () => {
+    const empty: QuoteInput = { ...base, items: [] };
+    const result = computeQuote(empty);
+    const { lines, totalRMB } = buildBreakdown(empty, result);
+    // 没有货就没有成本可拆：固定费用不应被算成一份"零件的成本"
+    expect(lines).toHaveLength(0);
+    expect(totalRMB).toBe(0);
   });
 });

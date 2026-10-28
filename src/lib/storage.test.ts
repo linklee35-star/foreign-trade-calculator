@@ -10,13 +10,14 @@ import type { QuoteInput } from "./types";
 
 // ============================================================================
 // 输入持久化 —— 守住「刷新不丢数据」和「坏存档不能把页面搞崩」两件事
+// 多货号之后还要守住：坏行丢弃、好行保留、全坏时回退默认行
 // ============================================================================
 
 const FALLBACK: QuoteInput = {
-  purchasePrice: 100,
-  quantity: 100,
+  items: [
+    { id: "item-1", name: "默认货号", spec: "", hsCode: "", quantity: 100, purchasePrice: 100, rebateRate: 13 },
+  ],
   vatRate: 13,
-  rebateRate: 13,
   domesticFees: 2000,
   bankFee: 500,
   certFee: 500,
@@ -25,6 +26,11 @@ const FALLBACK: QuoteInput = {
   insuranceMarkup: 110,
   exchangeRate: 7.1,
   profitRate: 10,
+  allocation: "value",
+  customer: "",
+  incoterm: "CIF",
+  validDays: 15,
+  paymentTerm: "",
 };
 
 function memoryStore(initial: Record<string, string> = {}): StorageLike & {
@@ -48,19 +54,30 @@ describe("输入持久化", () => {
     expect(readInput(memoryStore(), FALLBACK)).toEqual(FALLBACK);
   });
 
-  it("写入后能原样读回", () => {
+  it("写入后能原样读回（含多货号与报价单抬头）", () => {
     const store = memoryStore();
-    const edited: QuoteInput = { ...FALLBACK, purchasePrice: 88.5, quantity: 500, rebateRate: 9 };
+    const edited: QuoteInput = {
+      ...FALLBACK,
+      items: [
+        { id: "a", name: "货号A", spec: "20cm", hsCode: "3926909090", quantity: 500, purchasePrice: 88.5, rebateRate: 9 },
+        { id: "b", name: "货号B", spec: "", hsCode: "", quantity: 200, purchasePrice: 12, rebateRate: 0 },
+      ],
+      incoterm: "FOB",
+      allocation: "quantity",
+      customer: "ACME Trading",
+      paymentTerm: "L/C at sight",
+      validDays: 30,
+    };
     writeInput(store, edited);
     expect(readInput(store, FALLBACK)).toEqual(edited);
   });
 
   it("存档缺字段时，缺的用默认值补齐", () => {
-    const store = memoryStore({ [STORAGE_KEY]: JSON.stringify({ purchasePrice: 66 }) });
+    const store = memoryStore({ [STORAGE_KEY]: JSON.stringify({ profitRate: 25 }) });
     const result = readInput(store, FALLBACK);
-    expect(result.purchasePrice).toBe(66);
-    expect(result.quantity).toBe(FALLBACK.quantity);
+    expect(result.profitRate).toBe(25);
     expect(result.exchangeRate).toBe(FALLBACK.exchangeRate);
+    expect(result.items).toEqual(FALLBACK.items);
   });
 
   it("坏存档（非法 JSON / 非对象）退回默认值，不抛异常", () => {
@@ -72,19 +89,55 @@ describe("输入持久化", () => {
   it("非数字字段被忽略（手改 localStorage 也不能污染计算）", () => {
     const store = memoryStore({
       [STORAGE_KEY]: JSON.stringify({
-        purchasePrice: "88",
-        quantity: null,
-        vatRate: 13,
+        profitRate: "25",
+        exchangeRate: null,
         rebateRate: 0,
         unknownField: 999,
       }),
     });
     const result = readInput(store, FALLBACK);
-    expect(result.purchasePrice).toBe(FALLBACK.purchasePrice); // 字符串被拒
-    expect(result.quantity).toBe(FALLBACK.quantity); // null 被拒
-    expect(result.vatRate).toBe(13); // 合法数字保留
-    expect(result.rebateRate).toBe(0); // 0 是合法值，不能被当成"空"
-    expect("unknownField" in result).toBe(false); // 未知字段不进入输入
+    expect(result.profitRate).toBe(FALLBACK.profitRate); // 字符串被拒
+    expect(result.exchangeRate).toBe(FALLBACK.exchangeRate); // null 被拒
+    expect("unknownField" in result).toBe(false);
+  });
+
+  it("枚举字段只接受白名单值（防手改 URL/存储塞进非法术语）", () => {
+    const store = memoryStore({
+      [STORAGE_KEY]: JSON.stringify({ incoterm: "EXW", allocation: "weight" }),
+    });
+    const result = readInput(store, FALLBACK);
+    expect(result.incoterm).toBe(FALLBACK.incoterm);
+    expect(result.allocation).toBe(FALLBACK.allocation);
+  });
+
+  it("坏货号行被丢弃，好行保留", () => {
+    const store = memoryStore({
+      [STORAGE_KEY]: JSON.stringify({
+        items: [
+          { id: "a", name: "好行", quantity: 10, purchasePrice: 5, rebateRate: 13 },
+          { id: "b", name: "坏行-数量是字符串", quantity: "10", purchasePrice: 5, rebateRate: 13 },
+          { id: "c", name: "坏行-缺退税率", quantity: 10, purchasePrice: 5 },
+          "not an object",
+        ],
+      }),
+    });
+    const result = readInput(store, FALLBACK);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].name).toBe("好行");
+  });
+
+  it("货号行负数数量被夹到 0", () => {
+    const store = memoryStore({
+      [STORAGE_KEY]: JSON.stringify({
+        items: [{ id: "a", name: "负数量", quantity: -5, purchasePrice: 5, rebateRate: 13 }],
+      }),
+    });
+    expect(readInput(store, FALLBACK).items[0].quantity).toBe(0);
+  });
+
+  it("明细全坏时回退默认行，不产生空订单", () => {
+    const store = memoryStore({ [STORAGE_KEY]: JSON.stringify({ items: [1, 2, 3] }) });
+    expect(readInput(store, FALLBACK).items).toEqual(FALLBACK.items);
   });
 
   it("store 不可用（隐私模式）时全部安全降级", () => {
@@ -96,7 +149,7 @@ describe("输入持久化", () => {
 
   it("清空后回到默认值", () => {
     const store = memoryStore();
-    writeInput(store, { ...FALLBACK, purchasePrice: 1 });
+    writeInput(store, { ...FALLBACK, profitRate: 1 });
     clearInput(store);
     expect(readInput(store, FALLBACK)).toEqual(FALLBACK);
     expect(store.data[STORAGE_KEY]).toBeUndefined();

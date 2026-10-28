@@ -26,6 +26,11 @@ export function buildBreakdown(
   input: QuoteInput,
   result: QuoteResult,
 ): CostBreakdown {
+  // 没有货号就没有成本可拆（与引擎的"总数量为 0 则全部归零"保持一致）
+  if (result.totalQuantity <= 0) {
+    return { lines: [], totalRMB: 0 };
+  }
+
   const rate = input.exchangeRate || 1;
   const totalRMB = result.cifCostUSD * rate;
 

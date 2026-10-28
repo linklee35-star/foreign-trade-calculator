@@ -1,16 +1,21 @@
-import type { QuoteInput, QuoteResult } from "./types";
+import type { ItemResult, QuoteInput, QuoteItem, QuoteResult } from "./types";
 
 // ============================================================================
 // 外贸报价计算核心 —— 纯函数，零依赖，全部可单测
-// 口径说明（外贸实务，FOB/CFR/CIF 按 Incoterms 2020）：
-//   采购成本按「含税价」录入，退税以不含税价为基数：
-//     不含税价 = 采购含税总额 / (1 + 增值税率)
-//     退税收入 = 不含税价 × 出口退税率（按 HS 编码，需增值税专用发票）
-//   FOB 成本 = 采购含税总额 − 退税收入 + 国内费用（报关/商检/拖车/港杂/银行/认证）
+//
+// 口径（外贸实务，Incoterms 2020）：
+//   每个货号按自己的 HS 编码退税率退税，全单统一增值税率：
+//     不含税价 = 采购含税 / (1 + 增值税率)
+//     退税收入 = 不含税价 × 该货号退税率
+//     净货值成本 = 采购含税 − 退税收入
+//   FOB 成本 = 净货值成本 + 国内费用（报关/商检/拖车/港杂/银行/认证）
 //   CFR 成本 = FOB 成本 + 海运费
 //   CIF 成本 = CFR 成本 / (1 − 保险加成 × 保险费率)
-//   报价 = CIF 成本 × (1 + 目标利润率)
-//   换汇成本 = FOB 人民币成本 ÷ FOB 美元报价（低于银行汇率才有利润，外贸核心指标）
+//   报价 = 所选术语的成本 × (1 + 目标利润率)
+//   换汇成本 = FOB 人民币成本 ÷ FOB 美元报价（低于银行汇率才有利润）
+//
+// 整单费用（国内 + 海运 + 保险）按货值或按数量分摊到每个货号，
+// 这样才知道"哪个货号吃掉了成本"，而不是只看整单平均。
 // ============================================================================
 
 const round = (n: number, digits = 2): number => {
@@ -18,70 +23,164 @@ const round = (n: number, digits = 2): number => {
   return Math.round(n * p) / p;
 };
 
+const num = (n: number): number => (Number.isFinite(n) ? n : 0);
+
+/** 新建一个空货号（UI 里"添加一行"用） */
+export function createItem(id: string): QuoteItem {
+  return {
+    id,
+    name: "",
+    spec: "",
+    hsCode: "",
+    quantity: 1,
+    purchasePrice: 0,
+    rebateRate: 13,
+  };
+}
+
 export function computeQuote(input: QuoteInput): QuoteResult {
-  const {
-    purchasePrice,
-    quantity,
-    vatRate,
-    rebateRate,
-    domesticFees,
-    bankFee,
-    certFee,
-    freightUSD,
-    insuranceRate,
-    insuranceMarkup,
-    exchangeRate,
-    profitRate,
-  } = input;
+  const rate = num(input.exchangeRate) || 1;
+  const profitRate = num(input.profitRate);
+  const vatDivisor = 1 + num(input.vatRate) / 100;
 
-  const safeQty = Math.max(0, quantity || 0);
-  const purchaseTotal = (purchasePrice || 0) * safeQty; // 含税采购总额 RMB
+  // —— 1. 逐行算货值成本（每行用自己的退税率）——
+  const baseRows = (input.items || []).map((item) => {
+    const quantity = Math.max(0, num(item.quantity));
+    const purchaseTotal = num(item.purchasePrice) * quantity;
+    const priceExVat = purchaseTotal / vatDivisor;
+    const rebateIncome = priceExVat * (num(item.rebateRate) / 100);
+    const netCostRMB = purchaseTotal - rebateIncome;
+    return { item, quantity, purchaseTotal, priceExVat, rebateIncome, netCostRMB };
+  });
 
-  // 退税：以不含税价为基数
-  const priceExVat = purchaseTotal / (1 + (vatRate || 0) / 100);
-  const rebateIncome = priceExVat * ((rebateRate || 0) / 100);
+  const purchaseTotal = baseRows.reduce((s, r) => s + r.purchaseTotal, 0);
+  const priceExVat = baseRows.reduce((s, r) => s + r.priceExVat, 0);
+  const rebateIncome = baseRows.reduce((s, r) => s + r.rebateIncome, 0);
+  const netGoodsCostRMB = purchaseTotal - rebateIncome;
+  const totalQuantity = baseRows.reduce((s, r) => s + r.quantity, 0);
 
-  // 国内费用合计
-  const domesticTotal = (domesticFees || 0) + (bankFee || 0) + (certFee || 0);
+  // 没有货就没有订单：固定费用不该被算成一份"零件的报价"。
+  // 总数量为 0 时全部金额归零（明细行保留，便于用户看到自己填了哪些行）。
+  if (totalQuantity <= 0) {
+    return {
+      purchaseTotal: 0,
+      priceExVat: 0,
+      rebateIncome: 0,
+      netGoodsCostRMB: 0,
+      domesticTotal: 0,
+      fobCostRMB: 0,
+      fobCostUSD: 0,
+      cfrCostUSD: 0,
+      insuranceUSD: 0,
+      cifCostUSD: 0,
+      cifCostRMB: 0,
+      quoteUSD: 0,
+      profitUSD: 0,
+      profitRMB: 0,
+      exchangeCost: 0,
+      healthy: false,
+      totalQuantity: 0,
+      items: baseRows.map((row) => ({
+        id: row.item.id,
+        name: row.item.name,
+        spec: row.item.spec,
+        hsCode: row.item.hsCode,
+        quantity: row.quantity,
+        purchaseTotal: 0,
+        rebateIncome: 0,
+        netCostRMB: 0,
+        allocatedRMB: 0,
+        cifCostRMB: 0,
+        cifCostUSD: 0,
+        amountUSD: 0,
+        unitPrice: 0,
+        profitUSD: 0,
+        share: 0,
+      })),
+    };
+  }
 
-  // FOB 成本（RMB → USD）
-  const fobCostRMB = purchaseTotal - rebateIncome + domesticTotal;
-  const rate = exchangeRate || 1;
+  // —— 2. 整单费用与三级成本 ——
+  const domesticTotal = num(input.domesticFees) + num(input.bankFee) + num(input.certFee);
+  const freightUSD = num(input.freightUSD);
+
+  const fobCostRMB = netGoodsCostRMB + domesticTotal;
   const fobCostUSD = fobCostRMB / rate;
+  const cfrCostUSD = fobCostUSD + freightUSD;
 
-  // CFR / CIF（保险费按 CIF 价加成计算，解方程得 CIF 成本）
-  const cfrCostUSD = fobCostUSD + (freightUSD || 0);
-  const insuranceFactor = ((insuranceMarkup || 0) / 100) * ((insuranceRate || 0) / 100);
+  // 保险费按 CIF 价加成计算，解方程得 CIF 成本
+  const insuranceFactor = (num(input.insuranceMarkup) / 100) * (num(input.insuranceRate) / 100);
   const cifCostUSD = insuranceFactor >= 1 ? cfrCostUSD : cfrCostUSD / (1 - insuranceFactor);
   const insuranceUSD = cifCostUSD - cfrCostUSD;
+  const cifCostRMB = cifCostUSD * rate;
 
-  // 报价与利润
-  const quoteUSD = cifCostUSD * (1 + (profitRate || 0) / 100);
-  const profitUSD = quoteUSD - cifCostUSD;
-  const quoteUnitUSD = safeQty > 0 ? quoteUSD / safeQty : 0;
+  // —— 3. 按所选术语报价 ——
+  const baseCostUSD =
+    input.incoterm === "FOB" ? fobCostUSD : input.incoterm === "CFR" ? cfrCostUSD : cifCostUSD;
+  const quoteUSD = baseCostUSD * (1 + profitRate / 100);
+  const profitUSD = quoteUSD - baseCostUSD;
   const profitRMB = profitUSD * rate;
 
-  // 换汇成本（外贸核心指标）：FOB 人民币成本 / FOB 美元报价
-  const fobQuoteUSD = fobCostUSD * (1 + (profitRate || 0) / 100);
+  // 换汇成本口径固定用 FOB（与所选术语无关，方便横向比较）
+  const fobQuoteUSD = fobCostUSD * (1 + profitRate / 100);
   const exchangeCost = fobQuoteUSD > 0 ? fobCostRMB / fobQuoteUSD : 0;
+  const healthy = exchangeCost > 0 && exchangeCost < rate;
+
+  // —— 4. 费用分摊到每个货号 ——
+  const feePoolRMB = domesticTotal + freightUSD * rate + insuranceUSD * rate;
+  const weightOf = (row: (typeof baseRows)[number]) =>
+    input.allocation === "quantity" ? row.quantity : row.netCostRMB;
+  const totalWeight = baseRows.reduce((s, r) => s + weightOf(r), 0);
+
+  const items: ItemResult[] = baseRows.map((row) => {
+    const share = totalWeight > 0 ? weightOf(row) / totalWeight : 0;
+
+    // 分摊后的三级成本：保证「各行加总 = 整单」（有测试守着）
+    const itemFobUSD = (row.netCostRMB + domesticTotal * share) / rate;
+    const itemCfrUSD = itemFobUSD + freightUSD * share;
+    const itemCifUSD = itemCfrUSD + insuranceUSD * share;
+
+    const itemBaseUSD =
+      input.incoterm === "FOB" ? itemFobUSD : input.incoterm === "CFR" ? itemCfrUSD : itemCifUSD;
+    const amountUSD = itemBaseUSD * (1 + profitRate / 100);
+
+    return {
+      id: row.item.id,
+      name: row.item.name,
+      spec: row.item.spec,
+      hsCode: row.item.hsCode,
+      quantity: row.quantity,
+      purchaseTotal: round(row.purchaseTotal),
+      rebateIncome: round(row.rebateIncome),
+      netCostRMB: round(row.netCostRMB),
+      allocatedRMB: round(feePoolRMB * share),
+      cifCostRMB: round(itemCifUSD * rate),
+      cifCostUSD: round(itemCifUSD),
+      amountUSD: round(amountUSD),
+      unitPrice: round(row.quantity > 0 ? amountUSD / row.quantity : 0, 4),
+      profitUSD: round(amountUSD - itemBaseUSD),
+      share,
+    };
+  });
 
   return {
     purchaseTotal: round(purchaseTotal),
     priceExVat: round(priceExVat),
     rebateIncome: round(rebateIncome),
+    netGoodsCostRMB: round(netGoodsCostRMB),
     domesticTotal: round(domesticTotal),
     fobCostRMB: round(fobCostRMB),
     fobCostUSD: round(fobCostUSD),
     cfrCostUSD: round(cfrCostUSD),
     insuranceUSD: round(insuranceUSD),
     cifCostUSD: round(cifCostUSD),
+    cifCostRMB: round(cifCostRMB),
     quoteUSD: round(quoteUSD),
-    quoteUnitUSD: round(quoteUnitUSD, 4),
     profitUSD: round(profitUSD),
     profitRMB: round(profitRMB),
-    fobQuoteUSD: round(fobQuoteUSD),
     exchangeCost: round(exchangeCost, 4),
-    // 换汇成本低于银行汇率才赚钱
-    healthy: exchangeCost > 0 && exchangeCost < rate,
+    healthy,
+    totalQuantity,
+    items,
   };
 }

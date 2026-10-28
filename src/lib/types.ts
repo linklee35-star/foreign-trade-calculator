@@ -30,6 +30,12 @@ export type AllocationMode = "value" | "quantity" | "volume";
 /** 报价术语：决定报价基数用哪一级成本 */
 export type Incoterm = "FOB" | "CFR" | "CIF";
 
+/** 报价币种（成本始终是人民币，报价与外汇净收入用这个币种） */
+export type CurrencyCode = "USD" | "EUR" | "JPY" | "GBP" | "HKD" | "AUD";
+
+/** 汇率来源：手动填写 / 实时接口 / 兜底参考值 */
+export type RateSource = "manual" | "api" | "fallback";
+
 /**
  * 海运费计费方式
  * - total：直接填整单运费（货代给的总额，最低计费吨已包含在里面）
@@ -65,8 +71,14 @@ export interface QuoteInput {
   /** 保险加成 %（常见 110） */
   insuranceMarkup: number;
 
-  /** 银行汇率（CNY per USD，如 7.10） */
+  /** 报价币种 */
+  currency: CurrencyCode;
+  /** 银行汇率：1 单位外币 = ? CNY */
   exchangeRate: number;
+  /** 汇率来源，界面上要如实显示是手填的还是接口拉的 */
+  rateSource: RateSource;
+  /** 汇率的更新时间（ISO 字符串，手动填写时为空） */
+  rateUpdatedAt: string;
   /** 目标利润率 %（基于所选术语的成本加成） */
   profitRate: number;
   /**

@@ -2,6 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { computeQuote, createItem } from "./lib/quote";
 import { buildBreakdown } from "./lib/breakdown";
 import { buildMarginScenarios, buildTermScenarios } from "./lib/scenarios";
+import {
+  CURRENCIES,
+  FALLBACK_RATE_DATE,
+  fetchRate,
+  formatAmount,
+  formatMoney,
+  getCurrency,
+  readCachedRate,
+} from "./lib/currency";
+import type { CurrencyCode } from "./lib/types";
 import { DEFAULT_INPUT, defaultQuoteNo, newItemId } from "./lib/defaults";
 import { clearInput, readInput, writeInput, type StorageLike } from "./lib/storage";
 import type { AllocationMode, FreightMode, Incoterm, QuoteInput, QuoteItem } from "./lib/types";
@@ -234,6 +244,55 @@ export default function App() {
     setInput(DEFAULT_INPUT);
   };
 
+  /* —— 汇率：手动 > 实时接口 > 兜底参考值 —— */
+  const [rateBusy, setRateBusy] = useState(false);
+
+  const setRateManual = (v: number) =>
+    setInput((s) => ({ ...s, exchangeRate: v, rateSource: "manual" }));
+
+  const refreshRate = async (code: CurrencyCode) => {
+    setRateBusy(true);
+    const quote = await fetchRate(code);
+    setRateBusy(false);
+    // 失败就保留当前值（可能是手动填的），绝不因为接口挂了把汇率清掉
+    if (!quote) return;
+    setInput((s) =>
+      s.currency === code
+        ? { ...s, exchangeRate: quote.rate, rateSource: "api", rateUpdatedAt: quote.updatedAt }
+        : s,
+    );
+  };
+
+  const switchCurrency = (code: CurrencyCode) => {
+    if (code === input.currency) return;
+    const cached = readCachedRate(code);
+    const meta = getCurrency(code);
+    setInput((s) => ({
+      ...s,
+      currency: code,
+      exchangeRate: cached ? cached.rate : meta.fallbackRate,
+      rateSource: cached ? "api" : "fallback",
+      rateUpdatedAt: cached ? cached.updatedAt : "",
+    }));
+    if (!cached) void refreshRate(code);
+  };
+
+  const rateHint =
+    input.rateSource === "manual"
+      ? "手动填写（不会被自动覆盖）"
+      : input.rateSource === "api"
+        ? `实时汇率 · 更新于 ${
+            input.rateUpdatedAt
+              ? new Date(input.rateUpdatedAt).toLocaleString("zh-CN", {
+                  month: "2-digit",
+                  day: "2-digit",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : "—"
+          }`
+        : `参考值（${FALLBACK_RATE_DATE} 核实）· 未取到实时汇率，请核对后手填`;
+
   const r = useMemo(() => computeQuote(input), [input]);
   const breakdown = useMemo(() => buildBreakdown(input, r), [input, r]);
   const termScenarios = useMemo(() => buildTermScenarios(input), [input]);
@@ -251,6 +310,8 @@ export default function App() {
   }, [input.validDays]);
 
   const showVolume = input.allocation === "volume";
+  /** 金额显示：自动带币种符号 */
+  const money = (n: number, d?: number) => formatMoney(n, input.currency, d);
 
   const incotermNote: Record<Incoterm, string> = {
     FOB: "装运港船上交货（不含海运费与保险）",
@@ -287,8 +348,8 @@ export default function App() {
               <th className="py-1.5 font-semibold">Description</th>
               <th className="py-1.5 font-semibold">Spec</th>
               <th className="py-1.5 text-right font-semibold">Qty</th>
-              <th className="py-1.5 text-right font-semibold">Unit Price (USD)</th>
-              <th className="py-1.5 text-right font-semibold">Amount (USD)</th>
+              <th className="py-1.5 text-right font-semibold">Unit Price ({input.currency})</th>
+              <th className="py-1.5 text-right font-semibold">Amount ({input.currency})</th>
             </tr>
           </thead>
           <tbody>
@@ -298,8 +359,12 @@ export default function App() {
                 <td className="py-1.5">{it.name || "—"}</td>
                 <td className="py-1.5">{it.spec || "—"}</td>
                 <td className="py-1.5 text-right tabular-nums">{fmt(it.quantity, 0)}</td>
-                <td className="py-1.5 text-right tabular-nums">{fmt(it.unitPrice, 4)}</td>
-                <td className="py-1.5 text-right tabular-nums">{fmt(it.amountUSD)}</td>
+                <td className="py-1.5 text-right tabular-nums">
+                  {formatAmount(it.unitPrice, input.currency, 4)}
+                </td>
+                <td className="py-1.5 text-right tabular-nums">
+                  {formatAmount(it.amountUSD, input.currency)}
+                </td>
               </tr>
             ))}
             <tr>
@@ -307,7 +372,7 @@ export default function App() {
                 TOTAL {input.incoterm} {input.pod || ""}
               </td>
               <td className="py-2 text-right font-bold tabular-nums print-accent">
-                USD {fmt(r.quoteUSD)}
+                {money(r.quoteUSD)}
               </td>
             </tr>
           </tbody>
@@ -517,7 +582,7 @@ export default function App() {
                 onChange={(v) => set("freightMode", v)}
                 options={[
                   { value: "total", label: "整单总额", hint: "货代给的总价" },
-                  { value: "perRT", label: "按计费吨单价", hint: "USD/R/T" },
+                  { value: "perRT", label: "按计费吨单价", hint: `${input.currency}/R/T` },
                 ]}
               />
             </div>
@@ -525,7 +590,7 @@ export default function App() {
               {input.freightMode === "total" ? (
                 <Field
                   label="海运费总额"
-                  unit="$"
+                  unit={input.currency}
                   value={input.freightUSD}
                   onChange={(v) => set("freightUSD", v)}
                 />
@@ -533,7 +598,7 @@ export default function App() {
                 <>
                   <Field
                     label="海运单价"
-                    unit="$/R/T"
+                    unit={`${input.currency}/R/T`}
                     value={input.freightRatePerRT}
                     onChange={(v) => set("freightRatePerRT", v)}
                     step={0.5}
@@ -556,7 +621,7 @@ export default function App() {
               <p className="mt-2 text-[11px] text-subtle">
                 实际计费吨 = max(计费吨 {fmt(r.chargeableTon, 3)}, 最低 {fmt(input.minChargeableTon, 3)}) ={" "}
                 <span className="text-muted">{fmt(r.billableTon, 3)} R/T</span> → 海运费 $
-                {fmt(r.freightUSD)}（单价 ${fmt(input.freightRatePerRT, 2)}/R/T）
+                {money(r.freightUSD)}（单价 {money(input.freightRatePerRT, 2)}/R/T）
               </p>
             ) : null}
             <div className="mt-3">
@@ -580,8 +645,50 @@ export default function App() {
 
           {/* ④ 报价参数 */}
           <Section title="④ 报价参数" desc="佣金只影响换汇成本（净收入），不改变给客户的报价">
+            <div className="mb-3">
+              <span className="mb-1 block text-xs text-muted">报价币种（成本始终为人民币）</span>
+              <div className="flex flex-wrap gap-1.5">
+                {CURRENCIES.map((c) => (
+                  <button
+                    key={c.code}
+                    type="button"
+                    onClick={() => switchCurrency(c.code)}
+                    title={c.name}
+                    className={
+                      "rounded-lg px-3 py-1.5 text-xs transition " +
+                      (input.currency === c.code ? "chip-active" : "chip")
+                    }
+                  >
+                    {c.symbol} {c.code}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Field label="银行汇率" unit="CNY/USD" value={input.exchangeRate} onChange={(v) => set("exchangeRate", v)} step={0.01} />
+              <label className="block">
+                <span className="mb-1 block text-xs text-muted">
+                  银行汇率 <span className="text-subtle">· CNY/{input.currency}</span>
+                </span>
+                <div className="flex gap-1">
+                  <input
+                    type="number"
+                    step={0.0001}
+                    value={Number.isFinite(input.exchangeRate) ? input.exchangeRate : 0}
+                    onChange={(e) => setRateManual(Number(e.target.value) || 0)}
+                    className="field min-w-0 flex-1 rounded-lg px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void refreshRate(input.currency)}
+                    disabled={rateBusy}
+                    className="btn shrink-0 rounded-lg px-2 py-1 text-[11px] disabled:opacity-50"
+                    title="从 open.er-api.com 拉取实时汇率"
+                  >
+                    {rateBusy ? "…" : "刷新"}
+                  </button>
+                </div>
+                <p className="mt-1 text-[10px] text-subtle">{rateHint}</p>
+              </label>
               <Field label="目标利润率" unit="%" value={input.profitRate} onChange={(v) => set("profitRate", v)} hint="按所选术语成本加成" />
               <Field label="中间商佣金" unit="%" value={input.commissionRate} onChange={(v) => set("commissionRate", v)} hint="常见 3~5" />
               <Field label="增值税率" unit="%" value={input.vatRate} onChange={(v) => set("vatRate", v)} hint="一般 13" />
@@ -634,10 +741,10 @@ export default function App() {
                 <thead>
                   <tr className="text-xs text-subtle">
                     <th className="pb-2 text-left font-normal">术语</th>
-                    <th className="pb-2 text-right font-normal">成本 $</th>
-                    <th className="pb-2 text-right font-normal">报价 $</th>
-                    <th className="pb-2 text-right font-normal">均摊单价 $</th>
-                    <th className="pb-2 text-right font-normal">利润 $</th>
+                    <th className="pb-2 text-right font-normal">成本 {input.currency}</th>
+                    <th className="pb-2 text-right font-normal">报价 {input.currency}</th>
+                    <th className="pb-2 text-right font-normal">均摊单价 {input.currency}</th>
+                    <th className="pb-2 text-right font-normal">利润 {input.currency}</th>
                     <th className="pb-2 text-right font-normal">换汇成本</th>
                     <th className="pb-2" />
                   </tr>
@@ -650,21 +757,22 @@ export default function App() {
                     >
                       <td className="py-1.5 font-medium">{s.incoterm}</td>
                       <td className="py-1.5 text-right tabular-nums text-muted">
-                        {fmt(costOf(s.incoterm, s))}
+                        {formatAmount(costOf(s.incoterm, s), input.currency)}
                       </td>
                       <td className="py-1.5 text-right font-medium tabular-nums">
-                        {fmt(s.result.quoteUSD)}
+                        {formatAmount(s.result.quoteUSD, input.currency)}
                       </td>
                       <td className="py-1.5 text-right tabular-nums text-muted">
-                        {fmt(
+                        {formatAmount(
                           s.result.totalQuantity > 0
                             ? s.result.quoteUSD / s.result.totalQuantity
                             : 0,
+                          input.currency,
                           4,
                         )}
                       </td>
                       <td className="py-1.5 text-right tabular-nums text-muted">
-                        {fmt(s.result.profitUSD)}
+                        {formatAmount(s.result.profitUSD, input.currency)}
                       </td>
                       <td className="py-1.5 text-right tabular-nums text-muted">
                         {fmt(s.result.exchangeCost, 4)}
@@ -705,7 +813,7 @@ export default function App() {
                       利润率 {s.profitRate}%{s.isCurrent ? " · 当前" : ""}
                     </div>
                     <div className="mt-0.5 text-base font-semibold tabular-nums">
-                      ${fmt(s.result.quoteUSD)}
+                      {money(s.result.quoteUSD)}
                     </div>
                     <div
                       className={
@@ -766,24 +874,24 @@ export default function App() {
           <div className="panel rounded-2xl p-4">
             <h2 className="mb-3 text-sm font-medium">整单结果</h2>
             <div className="space-y-3">
-              <Metric label="FOB 成本" value={`$${fmt(r.fobCostUSD)}`} sub={`¥${fmt(r.fobCostRMB)}`} />
-              <Metric label="CFR 成本" value={`$${fmt(r.cfrCostUSD)}`} sub={`含运费 $${fmt(r.freightUSD)}`} />
-              <Metric label="CIF 成本" value={`$${fmt(r.cifCostUSD)}`} sub={`含保险 $${fmt(r.insuranceUSD)}`} />
+              <Metric label="FOB 成本" value={money(r.fobCostUSD)} sub={`¥${fmt(r.fobCostRMB)}`} />
+              <Metric label="CFR 成本" value={money(r.cfrCostUSD)} sub={`含运费 ${money(r.freightUSD)}`} />
+              <Metric label="CIF 成本" value={money(r.cifCostUSD)} sub={`含保险 ${money(r.insuranceUSD)}`} />
               <div className="accent-card rounded-xl p-3">
                 <div className="text-xs" style={{ color: "var(--accent-text)" }}>
                   {input.incoterm} 报价（含 {input.profitRate}% 利润）
                 </div>
                 <div className="mt-1 text-2xl font-semibold" style={{ color: "var(--accent-text)" }}>
-                  ${fmt(r.quoteUSD)}
+                  {money(r.quoteUSD)}
                 </div>
                 <div className="mt-0.5 text-xs" style={{ color: "var(--accent)" }}>
-                  共 {fmt(r.totalQuantity, 0)} 件 · 均摊 $
-                  {fmt(r.totalQuantity > 0 ? r.quoteUSD / r.totalQuantity : 0, 4)}/件
+                  共 {fmt(r.totalQuantity, 0)} 件 · 均摊{" "}
+                  {money(r.totalQuantity > 0 ? r.quoteUSD / r.totalQuantity : 0, 4)}/件
                 </div>
               </div>
               <Metric
                 label="换汇成本"
-                value={`${fmt(r.exchangeCost, 4)} CNY/USD`}
+                value={`${fmt(r.exchangeCost, 4)} CNY/${input.currency}`}
                 sub={
                   r.healthy
                     ? `低于银行汇率 ${input.exchangeRate}，有利润`
@@ -791,15 +899,15 @@ export default function App() {
                 }
                 tone={r.healthy ? "good" : "bad"}
               />
-              <Metric label="整单利润" value={`$${fmt(r.profitUSD)}`} sub={`≈ ¥${fmt(r.profitRMB)}`} />
+              <Metric label="整单利润" value={money(r.profitUSD)} sub={`≈ ¥${fmt(r.profitRMB)}`} />
               <div className="panel-soft rounded-xl p-3 text-xs">
                 <div className="flex justify-between text-subtle">
                   <span>中间商佣金（{input.commissionRate}%）</span>
-                  <span className="tabular-nums">${fmt(r.commissionUSD)}</span>
+                  <span className="tabular-nums">{money(r.commissionUSD)}</span>
                 </div>
                 <div className="mt-1 flex justify-between text-subtle">
                   <span>外汇净收入（FOB − 佣金）</span>
-                  <span className="tabular-nums">${fmt(r.netIncomeUSD)}</span>
+                  <span className="tabular-nums">{money(r.netIncomeUSD)}</span>
                 </div>
               </div>
             </div>

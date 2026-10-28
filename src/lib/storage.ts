@@ -1,4 +1,12 @@
-import type { AllocationMode, FreightMode, Incoterm, QuoteInput, QuoteItem } from "./types";
+import type {
+  AllocationMode,
+  CurrencyCode,
+  FreightMode,
+  Incoterm,
+  QuoteInput,
+  QuoteItem,
+  RateSource,
+} from "./types";
 
 const STORAGE_KEY = "foreign-trade-quote-input-v2";
 
@@ -28,11 +36,21 @@ const NUMERIC_KEYS = [
   "validDays",
 ] as const;
 
-const TEXT_KEYS = ["quoteNo", "customer", "pol", "pod", "leadTime", "paymentTerm"] as const;
+const TEXT_KEYS = [
+  "quoteNo",
+  "customer",
+  "pol",
+  "pod",
+  "leadTime",
+  "paymentTerm",
+  "rateUpdatedAt",
+] as const;
 
 const ALLOCATIONS: AllocationMode[] = ["value", "quantity", "volume"];
 const INCOTERMS: Incoterm[] = ["FOB", "CFR", "CIF"];
 const FREIGHT_MODES: FreightMode[] = ["total", "perRT"];
+const CURRENCIES: CurrencyCode[] = ["USD", "EUR", "JPY", "GBP", "HKD", "AUD"];
+const RATE_SOURCES: RateSource[] = ["manual", "api", "fallback"];
 
 const isFiniteNumber = (v: unknown): v is number =>
   typeof v === "number" && Number.isFinite(v);
@@ -111,6 +129,18 @@ export function readInput(
       FREIGHT_MODES.includes(saved.freightMode as FreightMode)
     ) {
       merged.freightMode = saved.freightMode as FreightMode;
+    }
+    if (
+      typeof saved.currency === "string" &&
+      CURRENCIES.includes(saved.currency as CurrencyCode)
+    ) {
+      merged.currency = saved.currency as CurrencyCode;
+    }
+    if (
+      typeof saved.rateSource === "string" &&
+      RATE_SOURCES.includes(saved.rateSource as RateSource)
+    ) {
+      merged.rateSource = saved.rateSource as RateSource;
     }
 
     if (Array.isArray(saved.items)) {

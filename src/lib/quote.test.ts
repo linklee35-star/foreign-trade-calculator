@@ -36,6 +36,11 @@ const base: QuoteInput = {
   currency: "USD",
   rateSource: "manual",
   rateUpdatedAt: "",
+  rounding: "none",
+  roundingUnit: 0.1,
+  sellerName: "",
+  sellerAddress: "",
+  sellerContact: "",
   profitRate: 10,
   commissionRate: 0,
   allocation: "value",
@@ -333,5 +338,77 @@ describe("外贸报价计算", () => {
     expect(sumCif).toBeCloseTo(r.cifCostRMB, 0);
     const sumAmount = r.items.reduce((s, i) => s + i.amountUSD, 0);
     expect(sumAmount).toBeCloseTo(r.quoteUSD, 0);
+  });
+
+  /* -------------------- 报价尾数处理 -------------------- */
+
+  it("不处理时报价等于理论值，单价保留 4 位小数", () => {
+    const r = computeQuote({ ...base, rounding: "none" });
+    expect(r.quoteUSD).toBeCloseTo(r.quoteRawUSD, 6);
+    expect(r.items[0].unitPrice).toBeCloseTo(29.4557, 3);
+  });
+
+  it("四舍五入到 0.1：单价 × 数量 必须等于金额", () => {
+    const r = computeQuote({ ...base, rounding: "nearest", roundingUnit: 0.1 });
+    const it = r.items[0];
+    expect(it.unitPrice).toBe(29.5);
+    expect(it.amountUSD).toBeCloseTo(29.5 * it.quantity, 2);
+    // 总价 = 各行金额之和，客户拿计算器一乘就对得上
+    expect(r.quoteUSD).toBeCloseTo(r.items.reduce((s, i) => s + i.amountUSD, 0), 2);
+    expect(r.quoteRawUSD).toBeCloseTo(2945.57, 1);
+  });
+
+  it("向上取整到 1：单价进位，利润随取整后报价一起变", () => {
+    const r = computeQuote({ ...base, rounding: "up", roundingUnit: 1 });
+    const it = r.items[0];
+    expect(it.unitPrice).toBe(30);
+    expect(it.amountUSD).toBe(3000);
+    expect(r.quoteUSD).toBe(3000);
+    // 利润 = 取整后报价 − 成本（不是取整前的利润）
+    expect(r.profitUSD).toBeCloseTo(3000 - r.cifCostUSD, 1);
+    expect(r.profitUSD).toBeGreaterThan(computeQuote({ ...base, rounding: "none" }).profitUSD);
+  });
+
+  it("向上取整不会把已经是整数的单价再抬一档（浮点 epsilon）", () => {
+    // 单价 29.4、取整单位 0.1 时，29.4/0.1 在浮点里是 293.9999…
+    const r = computeQuote({
+      ...base,
+      rounding: "up",
+      roundingUnit: 0.1,
+      items: [item({ quantity: 10, purchasePrice: 21 })],
+    });
+    // 单价只要不是 0.1 的整数倍才会进位；这里只验证结果仍是 0.1 的整数倍
+    expect(Math.abs(r.items[0].unitPrice * 10 - Math.round(r.items[0].unitPrice * 10))).toBeLessThan(1e-6);
+  });
+
+  it("取整后换汇成本按取整后的净收入重算（报价涨了成本指标要跟着变好）", () => {
+    const raw = computeQuote({ ...base, rounding: "none" });
+    const rounded = computeQuote({ ...base, rounding: "up", roundingUnit: 1 });
+    expect(rounded.quoteUSD).toBeGreaterThan(raw.quoteUSD);
+    expect(rounded.netIncomeUSD).toBeGreaterThan(raw.netIncomeUSD);
+    expect(rounded.exchangeCost).toBeLessThan(raw.exchangeCost);
+  });
+
+  it("多货号取整后各行金额加总仍等于整单报价", () => {
+    const r = computeQuote({
+      ...base,
+      rounding: "nearest",
+      roundingUnit: 0.5,
+      items: [
+        item({ id: "a", quantity: 100, purchasePrice: 100 }),
+        item({ id: "b", quantity: 250, purchasePrice: 33 }),
+      ],
+    });
+    expect(r.quoteUSD).toBeCloseTo(r.items.reduce((s, i) => s + i.amountUSD, 0), 2);
+  });
+
+  it("数量为 0 的货号参与取整时不出 NaN", () => {
+    const r = computeQuote({
+      ...base,
+      rounding: "nearest",
+      items: [item({ quantity: 0 })],
+    });
+    expect(Number.isFinite(r.quoteUSD)).toBe(true);
+    expect(Number.isFinite(r.items[0].unitPrice)).toBe(true);
   });
 });

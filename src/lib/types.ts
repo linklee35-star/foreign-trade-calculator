@@ -36,6 +36,9 @@ export type CurrencyCode = "USD" | "EUR" | "JPY" | "GBP" | "HKD" | "AUD";
 /** 汇率来源：手动填写 / 实时接口 / 兜底参考值 */
 export type RateSource = "manual" | "api" | "fallback";
 
+/** 报价尾数处理方式：按单价取整，再重算总价 */
+export type RoundingMode = "none" | "up" | "nearest";
+
 /**
  * 海运费计费方式
  * - total：直接填整单运费（货代给的总额，最低计费吨已包含在里面）
@@ -82,6 +85,13 @@ export interface QuoteInput {
   /** 目标利润率 %（基于所选术语的成本加成） */
   profitRate: number;
   /**
+   * 报价尾数处理：按单价取整后总价重算，
+   * 保证「单价 × 数量 = 金额」，不会出现客户拿计算器一乘对不上的情况。
+   */
+  rounding: RoundingMode;
+  /** 取整单位（0.01 / 0.1 / 0.5 / 1） */
+  roundingUnit: number;
+  /**
    * 中间商佣金 %（按报价金额计）。
    * 换汇成本要用「外汇净收入」而不是报价本身，
    * 佣金是净收入里必须扣掉的部分（外贸常见 3~5%）。
@@ -92,6 +102,12 @@ export interface QuoteInput {
   allocation: AllocationMode;
 
   /** —— 报价单抬头信息 —— */
+  /** 卖方（我方）名称：报价单必须能看出是谁发的 */
+  sellerName: string;
+  /** 卖方地址 */
+  sellerAddress: string;
+  /** 卖方联系方式（邮箱 / 电话） */
+  sellerContact: string;
   /** 报价单号（留空则按日期自动生成） */
   quoteNo: string;
   customer: string;
@@ -169,6 +185,8 @@ export interface QuoteResult {
 
   /** 报价（按所选术语）与利润 */
   quoteUSD: number;
+  /** 未做尾数处理时的理论报价（用于显示取整带来的差额） */
+  quoteRawUSD: number;
   profitUSD: number;
   profitRMB: number;
 

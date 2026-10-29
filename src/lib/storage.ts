@@ -6,6 +6,7 @@ import type {
   QuoteInput,
   QuoteItem,
   RateSource,
+  RoundingMode,
 } from "./types";
 
 const STORAGE_KEY = "foreign-trade-quote-input-v2";
@@ -34,10 +35,14 @@ const NUMERIC_KEYS = [
   "profitRate",
   "commissionRate",
   "validDays",
+  "roundingUnit",
 ] as const;
 
 const TEXT_KEYS = [
   "quoteNo",
+  "sellerName",
+  "sellerAddress",
+  "sellerContact",
   "customer",
   "pol",
   "pod",
@@ -51,6 +56,7 @@ const INCOTERMS: Incoterm[] = ["FOB", "CFR", "CIF"];
 const FREIGHT_MODES: FreightMode[] = ["total", "perRT"];
 const CURRENCIES: CurrencyCode[] = ["USD", "EUR", "JPY", "GBP", "HKD", "AUD"];
 const RATE_SOURCES: RateSource[] = ["manual", "api", "fallback"];
+const ROUNDINGS: RoundingMode[] = ["none", "up", "nearest"];
 
 const isFiniteNumber = (v: unknown): v is number =>
   typeof v === "number" && Number.isFinite(v);
@@ -141,6 +147,12 @@ export function readInput(
       RATE_SOURCES.includes(saved.rateSource as RateSource)
     ) {
       merged.rateSource = saved.rateSource as RateSource;
+    }
+    if (
+      typeof saved.rounding === "string" &&
+      ROUNDINGS.includes(saved.rounding as RoundingMode)
+    ) {
+      merged.rounding = saved.rounding as RoundingMode;
     }
 
     if (Array.isArray(saved.items)) {

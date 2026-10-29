@@ -1,4 +1,4 @@
-import type { ItemResult, QuoteInput, QuoteItem, QuoteResult } from "./types";
+import type { ItemResult, QuoteInput, QuoteItem, QuoteResult, RoundingMode } from "./types";
 
 // ============================================================================
 // 外贸报价计算核心 —— 纯函数，零依赖，全部可单测
@@ -24,6 +24,18 @@ const round = (n: number, digits = 2): number => {
 };
 
 const num = (n: number): number => (Number.isFinite(n) ? n : 0);
+
+/**
+ * 把单价取整到指定单位。
+ * epsilon 是必要的：29.4 / 0.1 在浮点里是 293.99999999999994，
+ * 直接 ceil 会变成 294.0000...1 → 30.0，客户会发现"我按 29.4 算的，你怎么报 30"。
+ */
+function roundToUnit(value: number, mode: RoundingMode, unit: number): number {
+  if (mode === "none" || unit <= 0) return value;
+  const steps = value / unit;
+  const rounded = mode === "up" ? Math.ceil(steps - 1e-9) : Math.round(steps);
+  return rounded * unit;
+}
 
 /** 新建一个空货号（UI 里"添加一行"用） */
 export function createItem(id: string): QuoteItem {
@@ -95,6 +107,7 @@ export function computeQuote(input: QuoteInput): QuoteResult {
       cifCostUSD: 0,
       cifCostRMB: 0,
       quoteUSD: 0,
+      quoteRawUSD: 0,
       profitUSD: 0,
       profitRMB: 0,
       commissionUSD: 0,
@@ -159,8 +172,6 @@ export function computeQuote(input: QuoteInput): QuoteResult {
   const baseCostUSD =
     input.incoterm === "FOB" ? fobCostUSD : input.incoterm === "CFR" ? cfrCostUSD : cifCostUSD;
   const quoteUSD = baseCostUSD * (1 + profitRate / 100);
-  const profitUSD = quoteUSD - baseCostUSD;
-  const profitRMB = profitUSD * rate;
 
   // 换汇成本口径（外贸标准）：出口总成本 ÷ 出口外汇净收入
   // 净收入 = FOB 报价 − 佣金（佣金是劳务费用，不属于卖方净收入）
@@ -169,8 +180,6 @@ export function computeQuote(input: QuoteInput): QuoteResult {
   const commissionRate = Math.min(100, Math.max(0, num(input.commissionRate)));
   const commissionUSD = quoteUSD * (commissionRate / 100);
   const netIncomeUSD = fobQuoteUSD * (1 - commissionRate / 100);
-  const exchangeCost = netIncomeUSD > 0 ? fobCostRMB / netIncomeUSD : 0;
-  const healthy = exchangeCost > 0 && exchangeCost < rate;
 
   // —— 4. 费用分摊到每个货号 ——
   const feePoolRMB = domesticTotal + freightUSD * rate + insuranceUSD * rate;
@@ -229,6 +238,37 @@ export function computeQuote(input: QuoteInput): QuoteResult {
     };
   });
 
+  // —— 5. 报价尾数处理 ——
+  // 业务员不会给客户报 29.4637 这种单价，但手工取整后总价又对不上。
+  // 这里按单价取整、总价重算，保证客户拿计算器一乘就是这个金额。
+  const quoteRawUSD = quoteUSD;
+  let finalQuoteUSD = quoteUSD;
+
+  if (input.rounding !== "none" && items.length > 0) {
+    const unit = Math.max(0.01, num(input.roundingUnit) || 0.01);
+    let sum = 0;
+    for (const item of items) {
+      const rawUnit = item.quantity > 0 ? item.amountUSD / item.quantity : 0;
+      // 取整前的成本单价：金额 = 成本 × (1 + 利润率)，反推即可
+      const baseUnit = rawUnit / (1 + profitRate / 100);
+      const roundedUnit = roundToUnit(rawUnit, input.rounding, unit);
+      item.unitPrice = round(roundedUnit, 4);
+      item.amountUSD = round(roundedUnit * item.quantity);
+      item.profitUSD = round(item.amountUSD - baseUnit * item.quantity);
+      sum += item.amountUSD;
+    }
+    finalQuoteUSD = round(sum);
+  }
+
+  // 取整只改变报价，不改变成本：利润与换汇成本都要按取整后的报价重算，
+  // 否则会出现「报价涨了但利润没变」的自相矛盾。
+  const scale = quoteRawUSD > 0 ? finalQuoteUSD / quoteRawUSD : 1;
+  const finalCommissionUSD = commissionUSD * scale;
+  const finalNetIncomeUSD = netIncomeUSD * scale;
+  const finalExchangeCost = finalNetIncomeUSD > 0 ? fobCostRMB / finalNetIncomeUSD : 0;
+  const finalProfitUSD = finalQuoteUSD - baseCostUSD;
+  const finalHealthy = finalExchangeCost > 0 && finalExchangeCost < rate;
+
   return {
     purchaseTotal: round(purchaseTotal),
     priceExVat: round(priceExVat),
@@ -242,13 +282,14 @@ export function computeQuote(input: QuoteInput): QuoteResult {
     insuranceUSD: round(insuranceUSD),
     cifCostUSD: round(cifCostUSD),
     cifCostRMB: round(cifCostRMB),
-    quoteUSD: round(quoteUSD),
-    profitUSD: round(profitUSD),
-    profitRMB: round(profitRMB),
-    commissionUSD: round(commissionUSD),
-    netIncomeUSD: round(netIncomeUSD),
-    exchangeCost: round(exchangeCost, 4),
-    healthy,
+    quoteUSD: round(finalQuoteUSD),
+    quoteRawUSD: round(quoteRawUSD),
+    profitUSD: round(finalProfitUSD),
+    profitRMB: round(finalProfitUSD * rate),
+    commissionUSD: round(finalCommissionUSD),
+    netIncomeUSD: round(finalNetIncomeUSD),
+    exchangeCost: round(finalExchangeCost, 4),
+    healthy: finalHealthy,
     totalQuantity,
     totalVolumeCBM: round(totalVolumeCBM, 4),
     totalWeightKg: round(totalWeightKg, 2),

@@ -11,7 +11,7 @@ import {
   getCurrency,
   readCachedRate,
 } from "./lib/currency";
-import type { CurrencyCode } from "./lib/types";
+import type { CurrencyCode, RoundingMode } from "./lib/types";
 import { DEFAULT_INPUT, defaultQuoteNo, newItemId } from "./lib/defaults";
 import { clearInput, readInput, writeInput, type StorageLike } from "./lib/storage";
 import type { AllocationMode, FreightMode, Incoterm, QuoteInput, QuoteItem } from "./lib/types";
@@ -325,7 +325,10 @@ export default function App() {
       <div className="print-only mb-6">
         <div className="flex items-start justify-between border-b-2 pb-2" style={{ borderColor: "#333" }}>
           <div>
-            <h1 className="text-2xl font-bold">出口报价单 / QUOTATION</h1>
+            <p className="text-base font-bold">{input.sellerName || "（请在「⑤ 报价单信息」填写公司名称）"}</p>
+            {input.sellerAddress ? <p className="text-[11px]">{input.sellerAddress}</p> : null}
+            {input.sellerContact ? <p className="text-[11px]">{input.sellerContact}</p> : null}
+            <h1 className="mt-2 text-xl font-bold">出口报价单 / QUOTATION</h1>
             <p className="mt-1 text-sm">Quotation No.: {quoteNo}</p>
             <p className="text-sm">To: {input.customer || "—"}</p>
           </div>
@@ -388,6 +391,13 @@ export default function App() {
           <p>Payment: {input.paymentTerm || "—"}</p>
           <p>Lead time: {input.leadTime || "—"}</p>
           <p>Validity: {input.validDays} days from the date above.</p>
+          {input.rounding !== "none" ? (
+            <p>
+              Note: unit prices are rounded to {input.roundingUnit} (
+              {input.rounding === "up" ? "rounded up" : "nearest"}), total recalculated
+              accordingly.
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -706,6 +716,41 @@ export default function App() {
               />
               <p className="mt-1.5 text-[11px] text-subtle">{incotermNote[input.incoterm]}</p>
             </div>
+
+            <div className="mt-3">
+              <Segmented<RoundingMode>
+                label="报价尾数处理（按单价取整，总价重算，保证单价 × 数量 = 金额）"
+                value={input.rounding}
+                onChange={(v) => set("rounding", v)}
+                options={[
+                  { value: "none", label: "不处理" },
+                  { value: "nearest", label: "四舍五入" },
+                  { value: "up", label: "向上取整" },
+                ]}
+              />
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] text-subtle">取整单位</span>
+                {[0.01, 0.1, 0.5, 1].map((unit) => (
+                  <button
+                    key={unit}
+                    type="button"
+                    disabled={input.rounding === "none"}
+                    onClick={() => set("roundingUnit", unit)}
+                    className={
+                      "rounded-lg px-2.5 py-1 text-xs transition disabled:opacity-40 " +
+                      (input.roundingUnit === unit ? "chip-active" : "chip")
+                    }
+                  >
+                    {unit}
+                  </button>
+                ))}
+                {input.rounding !== "none" && Math.abs(r.quoteUSD - r.quoteRawUSD) >= 0.01 ? (
+                  <span className="ml-1 text-[11px] text-subtle">
+                    取整前 {money(r.quoteRawUSD)} → 取整后 {money(r.quoteUSD)}
+                  </span>
+                ) : null}
+              </div>
+            </div>
           </Section>
 
           {/* ⑤ 报价单信息 */}
@@ -714,6 +759,9 @@ export default function App() {
             desc="打印时显示在报价单抬头。Incoterms 必须带目的港——只写 CIF 是无效条款"
           >
             <div className="grid gap-3 sm:grid-cols-3">
+              <TextField label="我方公司名称" value={input.sellerName} onChange={(v) => set("sellerName", v)} placeholder="Ningbo XX Trading Co., Ltd." />
+              <TextField label="我方地址" value={input.sellerAddress} onChange={(v) => set("sellerAddress", v)} placeholder="No.1 Port Road, Ningbo, China" />
+              <TextField label="我方联系方式" value={input.sellerContact} onChange={(v) => set("sellerContact", v)} placeholder="sales@example.com / +86 574 ..." />
               <TextField label="报价单号" value={input.quoteNo} onChange={(v) => set("quoteNo", v)} placeholder={defaultQuoteNo()} />
               <TextField label="客户名称" value={input.customer} onChange={(v) => set("customer", v)} placeholder="ACME Trading Co." />
               <Field label="报价有效期" unit="天" value={input.validDays} onChange={(v) => set("validDays", v)} />
@@ -901,6 +949,12 @@ export default function App() {
               />
               <Metric label="整单利润" value={money(r.profitUSD)} sub={`≈ ¥${fmt(r.profitRMB)}`} />
               <div className="panel-soft rounded-xl p-3 text-xs">
+                {input.rounding !== "none" ? (
+                  <div className="mb-1 flex justify-between text-subtle">
+                    <span>取整前理论报价</span>
+                    <span className="tabular-nums">{money(r.quoteRawUSD)}</span>
+                  </div>
+                ) : null}
                 <div className="flex justify-between text-subtle">
                   <span>中间商佣金（{input.commissionRate}%）</span>
                   <span className="tabular-nums">{money(r.commissionUSD)}</span>

@@ -12,6 +12,7 @@ import {
   readCachedRate,
 } from "./lib/currency";
 import type { CurrencyCode, RoundingMode } from "./lib/types";
+import IncotermsPage from "./IncotermsPage";
 import { DEFAULT_INPUT, defaultQuoteNo, newItemId } from "./lib/defaults";
 import { clearInput, readInput, writeInput, type StorageLike } from "./lib/storage";
 import type { AllocationMode, FreightMode, Incoterm, QuoteInput, QuoteItem } from "./lib/types";
@@ -210,10 +211,64 @@ function Metric({
   );
 }
 
+/* ------------------------------------------------------------------ 页面切换 */
+
+type Page = "calc" | "incoterms";
+
+const PAGE_HASH = "#/incoterms";
+
+function pageFromHash(): Page {
+  return window.location.hash === PAGE_HASH ? "incoterms" : "calc";
+}
+
+function TopTabs({ page, onChange }: { page: Page; onChange: (p: Page) => void }) {
+  const tabs: { key: Page; label: string }[] = [
+    { key: "calc", label: "报价计算" },
+    { key: "incoterms", label: "Incoterms 对照" },
+  ];
+  return (
+    <div className="no-print border-b" style={{ borderColor: "var(--border)" }}>
+      <div className="mx-auto flex max-w-6xl gap-1 px-4 pt-3">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => onChange(t.key)}
+            className={
+              "rounded-t-lg px-3 py-1.5 text-xs transition " +
+              (page === t.key ? "chip-active" : "chip")
+            }
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ 主界面 */
 
 export default function App() {
   const [input, setInput] = useState<QuoteInput>(() => readInput(getStore(), DEFAULT_INPUT));
+  const [page, setPage] = useState<Page>(() => pageFromHash());
+
+  // 用 hash 做路由：刷新不丢、链接可分享，且不需要引路由库
+  useEffect(() => {
+    const sync = () => setPage(pageFromHash());
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
+
+  const go = (target: Page) => {
+    setPage(target);
+    if (target === "incoterms") {
+      window.location.hash = PAGE_HASH;
+    } else {
+      // 清掉 hash 而不是留一个孤零零的 #
+      window.history.replaceState({}, "", window.location.pathname + window.location.search);
+    }
+  };
 
   // 每次改动都落盘：外贸报价要反复调参数，刷新丢掉很致命
   useEffect(() => {
@@ -319,8 +374,24 @@ export default function App() {
     CIF: "成本保险费加运费（含海运费与保险）",
   };
 
+  if (page === "incoterms") {
+    return (
+      <>
+        <TopTabs page={page} onChange={go} />
+        <IncotermsPage
+          onUseTerm={(code) => {
+            set("incoterm", code);
+            go("calc");
+          }}
+        />
+      </>
+    );
+  }
+
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
+    <>
+      <TopTabs page={page} onChange={go} />
+      <div className="mx-auto max-w-6xl px-4 py-8">
       {/* ================= 打印版：给客户的报价单（不含成本，成本是内部信息） ================= */}
       <div className="print-only mb-6">
         <div className="flex items-start justify-between border-b-2 pb-2" style={{ borderColor: "#333" }}>
@@ -1013,6 +1084,7 @@ export default function App() {
           </div>
         </aside>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
